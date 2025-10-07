@@ -2,7 +2,7 @@
 	script_description = "New Generation Effects Automation Subs. Creating Effects with Modifiable Parameters"
 	script_author	   = "vict8r"
 	script_version	   = "1.0 beta"
-	script_update	   = "september 29th 2025"
+	script_update	   = "october 6th 2025"
 	
 	include("karaskel.lua")
 	local ke = require("kelibs/newkara_library")
@@ -50,11 +50,11 @@
 					maxj = maxj * v
 				end
 				while j <= maxj do
-					----------------------------------------------------------------
+					----------------------------------------------------------------------
 					ke.infofx.j = j
 					ke.infofx.maxj = maxj
 					ke.config.valbox(fx__, meta, line, l, word, syl, fx, var, ke, j, maxj)
-					----------------------------------------------------------------
+					----------------------------------------------------------------------
 					l.start_time = fx.time_ini
 					l.end_time = fx.time_fin
 					l.duration = fx.time_dur
