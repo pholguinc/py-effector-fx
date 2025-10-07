@@ -26,12 +26,14 @@
 			local arrayfx = sets[fx__.fx_type]
 			ke.infofx.l = linei
 			for _, fx in ipairs(arrayfx) do
-				ke.infofx.fx = fx
 				local char = sets.char[fx.ci]
 				local syl  = sets.syl[fx.si]
 				local word = sets.word[fx.wi]
 				local line = ke.table.copy(orgline)
 				char.n, syl.n, word.n, line.n = #sets.char, #sets.syl, #sets.word, #linefx
+				local setn = {line = line.n, word = word.n, syl = syl.n, char = char.n}
+				fx.n = setn[fx__.fx_type]
+				ke.infofx.fx = fx
 				--variables:
 				local svar = ("return function(fx__, line, word, syl, ke) %s end"):format(fx__.fx_variable)
 				if pcall(loadstring(svar)) then
