@@ -7568,6 +7568,14 @@
 				end
 				ke.infofx.fx.returnfx = vals.returnfx
 				---------------------------------------
+				--align:
+				fx__.fx_align = ke.tag.tonumber(fx__.fx_align)
+				local align = loadstring(tovalue:format(fx__.fx_align))()
+				vals.align = "\\an" .. (align(table.unpack(setting)) or 5)
+				vals.align = (type(vals.add_tags) == "string" and vals.add_tags:match("\\an%d")) and "" or vals.align
+				vals.align = (type(vals.returnfx) == "string" and vals.returnfx:match("\\an%d")) and "" or vals.align
+				ke.infofx.fx.align = vals.align
+				---------------------------------------
 				--position, move and time move:
 				fx__.fx_posx = ke.tag.tonumber(fx__.fx_posx)
 				fx__.fx_posy = ke.tag.tonumber(fx__.fx_posy)
@@ -7580,6 +7588,32 @@
 				pos_y = pos_y(table.unpack(setting))
 				vals.t1, vals.t2 = times[1] or 0, times[1] or vals.dur
 				vals.x, vals.y = pos_x[1] or fx.center, pos_y[1] or fx.middle
+				local pos_knjx, pos_knjy = fx.center, fx.middle
+				local pos_rever_x = fx__.fx_reverse and l.right + l.left - 2 * fx.center or 0
+				local xres = aegisub.video_size()
+				if fx__.fx_vertical then
+					pos_rever_x = 0
+					local options_px = {
+						[1] = l.margin_l + l.height / 2,
+						[2] = l.margin_l + (xres - l.margin_l - l.margin_r) / 2,
+						[3] = xres - l.margin_r - l.height / 2,
+					}
+					local options_py = {
+						[1] = l.middle + l.height * (0.9 * (fx.i - fx.n)),
+						[2] = l.middle + l.height * (0.9 * (fx.i - fx.n / 2 - 1) + 0.45),
+						[3] = l.middle + l.height * (0.9 * (fx.i - 1)),
+					}
+					if fx__.fx_reverse then
+						options_py = {
+							[1] = l.middle - l.height * (0.9 * (fx.i - 1)),
+							[2] = l.middle - l.height * (0.9 * (fx.i - fx.n / 2 - 1) + 0.45),
+							[3] = l.middle - l.height * (0.9 * (fx.i - fx.n)),
+						}
+					end
+					pos_knjx = options_px[(tonumber(vals.align:match("%d")) - 1) % 3 + 1]
+					pos_knjy = options_py[math.ceil(tonumber(vals.align:match("%d")) / 3)]
+				end
+				vals.x, vals.y = pos_knjx + pos_rever_x, pos_knjy
 				vals.x1, vals.y1 = vals.x, vals.y
 				vals.x2, vals.y2 = pos_x[2] or nil, pos_y[2] or nil
 				if vals.x2 or vals.y2 then
@@ -7599,14 +7633,6 @@
 				local layer = loadstring(tovalue:format(fx__.fx_layer))()
 				vals.layer = layer(table.unpack(setting)) or line.layer
 				ke.infofx.fx.layer = vals.layer
-				---------------------------------------
-				--align:
-				fx__.fx_align = ke.tag.tonumber(fx__.fx_align)
-				local align = loadstring(tovalue:format(fx__.fx_align))()
-				vals.align = "\\an" .. (align(table.unpack(setting)) or 5)
-				vals.align = (type(vals.add_tags) == "string" and vals.add_tags:match("\\an%d")) and "" or vals.align
-				vals.align = (type(vals.returnfx) == "string" and vals.returnfx:match("\\an%d")) and "" or vals.align
-				ke.infofx.fx.align = vals.align
 				---------------------------------------
 				for k, v in pairs(vals) do
 					if type(v) == "string" then
@@ -8058,9 +8084,9 @@
 		
 		image = {
 			
-			to_pixels = function()
+			to_pixels = function(png)
 				local image = require("ILL.IMG")
-				local png = "C:\\Users\\lenovo\\Desktop\\newke project\\kelibs\\fire.png"
+				local png = png or "C:\\Users\\victo\\Escritorio\\effector2\\demo4.png"
 				local img = image.LIBPNG(png):decode()
 				local w, h = img.width, img.height
 				local data = img:getData()
