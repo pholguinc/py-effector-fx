@@ -7538,6 +7538,7 @@
 				--start and end times:
 				fx__.fx_start = fx__.fx_start:gsub("(%d+%:%d+%:%d+%.%d+)", function(HMS) return tostring(ke.time.HMS_to_ms(HMS)) end)
 				fx__.fx_end = fx__.fx_end:gsub( "(%d+%:%d+%:%d+%.%d+)", function(HMS) return tostring(ke.time.HMS_to_ms(HMS)) end)
+				fx__.fx_start, fx__.fx_end = ke.tag.tonumber(fx__.fx_start), ke.tag.tonumber(fx__.fx_end)
 				local start_t = loadstring(totable:format(fx__.fx_start))()
 				local end_t = loadstring(totable:format(fx__.fx_end))()
 				vals.start_time = start_t(table.unpack(setting))[1] or line.start_time
@@ -7548,6 +7549,7 @@
 				---------------------------------------
 				--add tags:
 				vals.add_tags = ""
+				fx__.fx_addtags = ke.tag.tonumber(fx__.fx_addtags)
 				local tags = loadstring(totable:format(fx__.fx_addtags))()
 				tags = tags(table.unpack(setting))
 				if type(tags) == "table" and #tags > 0 then
@@ -7558,6 +7560,7 @@
 				ke.infofx.fx.add_tags = vals.add_tags
 				---------------------------------------
 				--return:
+				fx__.fx_return = ke.tag.tonumber(fx__.fx_return)
 				local returnfx = loadstring(totable:format(fx__.fx_return))()
 				vals.returnfx = returnfx(table.unpack(setting))[1] or fx.text
 				if type(vals.returnfx) == "table" then
@@ -7566,6 +7569,9 @@
 				ke.infofx.fx.returnfx = vals.returnfx
 				---------------------------------------
 				--position, move and time move:
+				fx__.fx_posx = ke.tag.tonumber(fx__.fx_posx)
+				fx__.fx_posy = ke.tag.tonumber(fx__.fx_posy)
+				fx__.fx_time = ke.tag.tonumber(fx__.fx_time)
 				local pos_x = loadstring(totable:format(fx__.fx_posx))()
 				local pos_y = loadstring(totable:format(fx__.fx_posy))()
 				local times = loadstring(totable:format(fx__.fx_time))()
@@ -7589,17 +7595,24 @@
 				ke.infofx.fx.t1, ke.infofx.fx.t2 = vals.t1, vals.t2
 				---------------------------------------
 				--layer:
+				fx__.fx_layer = ke.tag.tonumber(fx__.fx_layer)
 				local layer = loadstring(tovalue:format(fx__.fx_layer))()
 				vals.layer = layer(table.unpack(setting)) or line.layer
 				ke.infofx.fx.layer = vals.layer
 				---------------------------------------
 				--align:
+				fx__.fx_align = ke.tag.tonumber(fx__.fx_align)
 				local align = loadstring(tovalue:format(fx__.fx_align))()
 				vals.align = "\\an" .. (align(table.unpack(setting)) or 5)
 				vals.align = (type(vals.add_tags) == "string" and vals.add_tags:match("\\an%d")) and "" or vals.align
 				vals.align = (type(vals.returnfx) == "string" and vals.returnfx:match("\\an%d")) and "" or vals.align
 				ke.infofx.fx.align = vals.align
 				---------------------------------------
+				for k, v in pairs(vals) do
+					if type(v) == "string" then
+						vals[k] = ke.tag.dark(v)
+					end
+				end
 				ke.table.insert(fx, vals, false, true)
 			end,
 			
