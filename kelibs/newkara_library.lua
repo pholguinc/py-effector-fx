@@ -316,9 +316,40 @@
 				return {vx, vy}
 			end,
 			
-			ipol = function(values, t, n)
-				if t then
-					t = ke.math.clamp(t)
+			ipol = function(values, t, accel, istime)
+				local accel = accel or 1
+				if istime then
+					local t0 = type(t) == "table" and t[1] or 0
+					local dur = (type(t) == "table" and t[2] or t) - t0
+					local total, accum, result, times = 0, 0, {t0}, {}
+					local issegs = 1
+					local values = type(values) == "number" and {seg = ke.table.new(values, 100)} or values
+					local vals = values.coors or values.segs or values
+					issegs = values.coors and 0 or 1
+					if issegs == 1 then
+						total, result[0] = ke.table.get(vals, "suma"), t0
+						for i = 1, #vals do
+							accum = accum + vals[i]
+							local u = accum / total
+							result[i] = t0 + dur * (type(accel) == "function" and accel(u) or u ^ accel)
+							times[i] = {result[i - 1], result[i]}
+						end --ke.math.ipol({segs = {100,100,100,100}}, {200, 500}, 0.75, true)
+					else
+						for i = 2, #vals do
+							total = total + math.abs(vals[i] - vals[i - 1])
+						end
+						for i = 2, #vals do
+							accum = accum + math.abs(vals[i] - vals[i - 1])
+							local u = accum / total
+							result[i] = t0 + dur * (type(accel) == "function" and accel(u) or u ^ accel)
+							times[i - 1] = {result[i - 1], result[i]}
+						end
+					end
+					return times
+				end --ke.math.ipol({coors = {100,0,100,0}}, 1000, 1.2, true)
+				local values = type(values) == "number" and {0, values} or values
+				if type(t) == "number" then
+					t = ke.math.clamp(type(accel) == "function" and accel(t) or t ^ accel)
 					if t == 0 then
 						return values[1]
 					end
@@ -327,20 +358,15 @@
 					local ini, fin = values[seg], values[seg + 1]
 					return ke.math.round(ini + (t * (n - 1) - (seg - 1)) * (fin - ini), ROUND_NUM)
 				end
-				local segs = #values - 1
-				local result = {}
-				local steps = math.floor((n - 1) / segs)
-				local remain = (n - 1) % segs
-				for i = 1, segs do
-					local ini, fin = values[i], values[i + 1]
-					local ns = steps + (i <= remain and 1 or 0)
-					for k = 0, ns - 1 do
-						table.insert(result, ke.math.round(ini + (k / ns) * (fin - ini), ROUND_NUM))
-					end
+				local result, u = {}
+				local n = type(t) == "table" and t[1] or 2
+				for i = 1, n do
+					u = (i - 1) / (n - 1)
+					t = type(accel) == "function" and accel(u) or u ^ accel
+					result[i] = ke.math.ipol(values, t)
 				end
-				table.insert(result, values[#values])
 				return result
-			end,
+			end, --ke.math.ipol({0, 30, 20}, {13}, 0.7)
 			
 			format = function(str, ...)
 				-- assigns values to a format string
@@ -721,7 +747,7 @@
 						end
 						local settab = type(support) == "number" and values[support] or (#values > 1 and values or values[1])
 						table.insert(newself, settab) --ke.table.new(unicode.chars("demo"), 1)
-					end --ke.table.new(shp:gmatch("%d+"))
+					end --ke.table.new(shp:gmatch(("%d+") ("%d+")))
 				elseif type(array) == "number" then
 					local size = math.ceil(math.abs(array))
 					for i = 1, size do
@@ -1100,7 +1126,7 @@
 				operation = {
 					["add"] = function(self, support)
 						--sum the elements with a number or with the elements of an array
-						local newtable, aux = {}, support
+						local newtable, aux = ke.table.new(), support
 						if type(aux) == "table" then
 							for i = 1, #self do --ke.table.get({3, 3, 3, 3}, "add", {{1, 2}})
 								newtable[i] = self[i] + (ke.table.type(aux) == "table" and aux[1][(i - 1) % #aux[1] + 1] or (aux[i] or 0))
@@ -1125,11 +1151,11 @@
 					
 					["combine"] = function(self, support)
 						--combinations of n size of an array
-						local newtable, n, newrow = {}, ke.math.round(math.abs(type(support) == "number" and support or 2))
+						local newtable, n, newrow = ke.table.new(), ke.math.round(math.abs(type(support) == "number" and support or 2))
 						local aux = ke.table.new(n)
 						while true do
 							newrow = ke.table.new(n, function(i) return self[aux[i]] end)
-							newtable[#newtable + 1] = newrow
+							newtable:insert(newrow)
 							local i = n
 							while aux[i] == #self - n + i do
 								i = i - 1
@@ -1214,10 +1240,10 @@
 					
 					["disorder"] = function(self)
 						--randomly shuffles the content of an indexed array
-						local newtable, newt = {}, ke.table.copy(self)
+						local newtable, newt = ke.table.new(), ke.table.copy(self)
 						while #newt > 0 do
 							idx = ke.math.rand(1, #newt)
-							newtable[#newtable + 1] = newt[idx]
+							newtable:insert(newt[idx])
 							newt = operation.delete(newt, {{idx}})
 						end
 						return newtable --ke.table.get(10, "disorder")
@@ -1226,7 +1252,7 @@
 					["idx"] = function(self, support)
 						--organize by index the elements of the table and omit the nils
 						local self = support and operation.toval(self) or self
-						local newtable, index_num, index_key, key = {}, {}, {}
+						local newtable, index_num, index_key, key = ke.table.new(), {}, {}
 						for k, v in pairs(self) do
 							index_num[#index_num + 1] = type(k) == "number" and k or nil
 							index_key[#index_key + 1] = type(k) ~= "number" and k or nil
@@ -1261,7 +1287,7 @@
 					
 					["insert"] = function(self, support)
 						--insert "support" at the end of the array
-						local newtable = ke.table.copy(self)
+						local newtable = ke.table.new(self)
 						local support = type(support) == "table" and support or {support}
 						for k, v in pairs(support) do
 							k = type(k) == "number" and #newtable + 1 or k
@@ -1272,7 +1298,7 @@
 					
 					["inverse"] = function(self)
 						--invert the position of the array elements
-						local newtable, ini = {}, self[0] and 0 or 1
+						local newtable, ini = ke.table.new(), self[0] and 0 or 1
 						for k, v in pairs(self) do
 							newtable[k] = type(k) == "number" and self[#self - k + ini] or v
 						end
@@ -1287,10 +1313,10 @@
 					
 					["move"] = function(self, support)
 						--shifts the indices of the array an integer number of positions
-						local newtable, _move = {}, type(support) == "table" and true or false
+						local newtable, _move = ke.table.new(), type(support) == "table" and true or false
 						local support = math.ceil(type(support) == "table" and support[1] or support or 0)
 						local ci = ke.math.count(support + 1)
-						for k, v in pairs(self) do
+						for k, v in pairs(self) do --fix
 							k = type(k) == "number" and (_move and ci("1>A", #self) or k + support) or k
 							newtable[k] = v
 						end --ke.table.get({1, 2, 3, 4, 5}, "move", {2})
@@ -1305,13 +1331,13 @@
 					
 					["newlen"] = function(self, support)
 						--modify the array size using its own elements
-						local newtable, n = {}, support or #self
+						local newtable, n = ke.table.new(), support or #self
 						if type(n) == "table" then
 							local tbl1, tbl2 = ke.table.new(#self, math.floor(n[1] / #self)), ke.table.new(n[1] % #self, 1)
 							local new_t = operation.add(tbl1, tbl2)
 							for i = 1, #self do
 								for k = 1, new_t[i] do
-									newtable[#newtable + 1] = self[i]
+									newtable:insert(self[i])
 								end
 							end --ke.table.get({"a", "b", "c"}, "newlen", {5})
 						elseif type(n) == "number" then
@@ -1319,7 +1345,7 @@
 						elseif type(tonumber(n)) == "number" then
 							for i = 1, tonumber(n) do
 								for k = 1, #self do
-									newtable[#newtable + 1] = type(self[k]) == "function" and self[k]() or self[k]
+									newtable:insert(type(self[k]) == "function" and self[k]() or self[k])
 								end
 							end --ke.table.get({"a", "b", "c"}, "newlen", "2")
 						end --ke.table.get({"a", "b", "c"}, "newlen", 5)
@@ -1339,7 +1365,7 @@
 					
 					["order"] = function(self)
 						--arranges the elements of a string array in alphabetical order
-						local newtable = ke.table.copy(self)
+						local newtable = ke.table.new(self)
 						table.sort(newtable,
 							function(a, b)
 								local _, _, col1, num1 = tostring(a):find("^(.-)%s*(%d+)$")
@@ -1354,7 +1380,7 @@
 					end, --ke.table.get({"dog", "cat", "hen", "cow", "pig"}, "order")
 					
 					["outpack"] = function(self)
-						--"unpacks" all the array contents into a single array
+						--"unpacks" all the array contents into a single indexed array
 						local function tbl_ipairs(self)
 							local index, keys = {}, {}
 							for k, v in pairs(self) do
@@ -1376,18 +1402,18 @@
 							end
 							return tbl
 						end
-						return tbl_unpack({}, tbl_ipairs(self))
+						return tbl_unpack(ke.table.new(), tbl_ipairs(self))
 					end, --ke.table.get({{x = 1, y = 2}, "7 8 ", 3, 4, x = 10, y = 11}, "outpack")
 					
 					["permute"] = function(self)
 						--returns an array with the combinations of the elements
-						local newtable = {}
+						local newtable = ke.table.new()
 						local function output(per)
 							local inside = {}
 							for _, v in ipairs(per) do
 								inside[#inside + 1] = v
 							end
-							newtable[#newtable + 1] = inside
+							newtable:insert(inside)
 						end
 						local function permutation(per, n)
 							if n == 0 then
@@ -1407,7 +1433,7 @@
 					
 					["pos"] = function(self, support)
 						--returns an array with the positions of the element "e", of type, capture or equality
-						local newtable, e = {}, support
+						local newtable, e = ke.table.new(), support
 						local types = {"function", "table", "string", "color", "alpha", "shape", "clip", "number", "boolean", "point", "segment", "polygon"}
 						if type(e) == "table" then
 							for k, v in pairs(self) do
@@ -1451,16 +1477,17 @@
 					
 					["round"] = function(self, support)
 						--returns the array with all the numbers rounded according to the third argument
-						local newtable = ke.table.copy(self)
+						local newtable = ke.table.new(self)
 						return ke.math.round(newtable, support)
 					end,
 					
 					["string"] = function(self, support)
 						--returns an array with the n-size parts of each string
 						local n = type(support) == "function" and support() or support or 1
-						for i, str in pairs(self) do
+						local newtable = ke.table.new(self)
+						for i, str in pairs(newtable) do
 							if type(str) == "table" then
-								self[i] = operation.string(str, n)
+								newtable[i] = operation.string(str, n)
 							elseif type(str) == "string" then
 								local aux, chars, size = {}, {}, unicode.len(str)
 								for c in unicode.chars(str) do
@@ -1472,12 +1499,12 @@
 										aux[#aux] = aux[#aux] .. (chars[j + k - 1] or "")
 									end
 								end --ke.table.get({y = "line text", "pi", "demo", 453}, "string", 3)
-								self[i] = n >= size and {str} or aux
+								newtable[i] = n >= size and {str} or aux
 							else
-								self[i] = str
+								newtable[i] = str
 							end
 						end
-						return self
+						return newtable
 					end, --ke.table.get({"line text", "demo", "de"}, "string", 3)
 					
 					["suma"] = function(self, support)
@@ -1522,23 +1549,33 @@
 							end
 							return tbl
 						end
-						local newtable = tbl_unpack({}, tbl_ipairs(self))
+						local newtable = tbl_unpack(ke.table.new(), tbl_ipairs(self))
 						return newtable
 					end, --ke.table.get({{x = 1, y = 2}, "7 8 ", 3, 4, x = 10, y = 11}, "tonumber")
 					
 					["topoint"] = function(self)
 						--get the points of an array or a shape
-						return operation.tonumber(self)
-					end,
+						local values = operation.tonumber(self)
+						local points = ke.table.new()
+						for i = 1, #values, 2 do
+							points:insert(ke.shape.point.new(values[i], values[i + 1]))
+						end
+						return points
+					end, --ke.table.get(ke.shape.rectangle, "topoint")
 					
 					["tosegment"] = function(self)
-						--get the segments of an array or a shape
-						return operation.tonumber(self)
-					end,
+						--get the line segments of an array or a shape
+						local values = operation.tonumber(self)
+						local segments = ke.table.new()
+						for i = 1, #values - 3, 2 do
+							segments:insert(ke.shape.segment.new({values[i], values[i + 1], values[i + 2], values[i + 3]}))
+						end
+						return segments
+					end, --ke.table.get(ke.shape.rectangle, "tosegment")
 					
 					["toval"] = function(self)
 						--assigns the actual value that each element represents
-						local newtable, table_val = {}, ke.table.copy(self)
+						local newtable, table_val = ke.table.new(), ke.table.copy(self)
 						for k, v in pairs(table_val) do
 							newtable[k] = (type(v) == "string" and v ~= "l") and ke.string.toval(v) or v
 							newtable[k] = type(v) == "table" and operation.toval(v) or newtable[k]
@@ -1546,32 +1583,24 @@
 						return newtable
 					end,
 					
-					["unique"] = function(self)
+					["unique"] = function(self, support)
 						--remove repeating elements from an indexed array
-						local newtable, _copy = {}, ke.table.copy(self)
-						while #_copy > 0 do
-							newtable[#newtable + 1] = _copy[1]
-							_copy = operation.delete(_copy, _copy[1])
+						local newtable, _copy = ke.table.new(), ke.table.copy(self)
+						if support then
+							newtable[1] = self[1]
+							for i = 2, #self do
+								newtable[#newtable + 1] = self[i] ~= newtable[#newtable] and self[i] or nil
+							end --remove only consecutive occurrences of each element
+						else --ke.table.get({1, 2, 2, 2, 5, 2, 2, 7, 7, 8}, "unique", true)
+							while #_copy > 0 do
+								newtable[#newtable + 1] = _copy[1]
+								_copy = operation.delete(_copy, _copy[1])
+							end
 						end
 						return newtable
 					end, --ke.table.get({1, 2, 2, 2, 5, 6, 7, 7, 8}, "unique")
 				}
 				local self_op = operation[mode] and operation[mode](self, support) or self
-				if mode == "topoint" then
-					local points = ke.table.new()
-					for i = 1, #self_op, 2 do
-						points[#points + 1] = ke.shape.point.new(self_op[i], self_op[i + 1])
-					end
-					return points
-				end
-				if mode == "tosegment" then
-					local segments = ke.table.new()
-					for i = 1, #self_op - 3, 2 do
-						segments[#segments + 1] = ke.shape.segment.new({self_op[i], self_op[i + 1], self_op[i + 2], self_op[i + 3]})
-					end
-					return segments
-				end
-				self_op = type(self_op) == "table" and ke.table.new(self_op) or self_op
 				return self_op
 			end,
 			
@@ -2152,19 +2181,30 @@
 					local ry = type(yrange) == "function" and yrange() or yrange or 256
 					return ke.table.new(cn,
 						function(i)
-							return ke.shape.point.new(ke.math.rand(1, rx, 1, true), ke.math.rand(1, ry, 1, true))
+							local prx = type(rx) == "table" and ke.math.rand(rx[1], rx[2], rx[3] or 1, rx[4]) or rx
+							local pry = type(ry) == "table" and ke.math.rand(ry[1], ry[2], ry[3] or 1, ry[4]) or ry
+							return ke.shape.point.new(
+								type(rx) == "table" and prx or ke.math.rand(0, rx, 1, true),
+								type(ry) == "table" and pry or ke.math.rand(0, ry, 1, true)
+							)
 						end
 					)
 				end, --ke.shape.point.random(10, 50, 50)
 				
 				["group"] = function(points, filter, ...)
 					local minx, maxx, miny, maxy = math.huge, -math.huge, math.huge, -math.huge
-					local xsum, ysum = 0, 0
+					local xsum, ysum, x, y, lengths, total = 0, 0, {}, {}, {}, 0
 					for i, p in ipairs(points) do
 						minx, maxx = math.min(minx, p.x), math.max(maxx, p.x)
 						miny, maxy = math.min(miny, p.y), math.max(maxy, p.y)
+						table.insert(x, p.x)
+						table.insert(y, p.y)
 						xsum = xsum + p.x
 						ysum = ysum + p.y
+						if i > 1 then
+							lengths[i - 1] = p:distance(points[i - 1])
+							total = total + lengths[i - 1]
+						end
 					end
 					local get = {
 						rank = {x = maxx - minx, y = maxy - miny}, --width and height
@@ -2172,7 +2212,10 @@
 						n = #points,
 						centroid = ke.shape.point.new(xsum / #points, ysum / #points),
 						convex = ke.shape.point.toconvex(points),
+						coors = {x, y},
+						lengths = lengths
 					}
+					get.lengths.total = total
 					if type(filter) == "string" then
 						return get[filter] or points
 					end
@@ -3818,8 +3861,27 @@
 			__name = "shape",
 			
 			["__index"] = function(self, name)
+				local specials = {"width", "height", "center", "middle", "radius", "centroid", "seg", "pnt", "len", "isclosed"}
+				if ke.table.inside(specials, name) then
+					return ke.shape.get(self, name)
+				end
 				return ke.shape[name]
 			end,
+			
+			["get"] = function(self, name)
+				local values = {}
+				values.width  = self.maxx - self.minx																--shape width
+				values.height = self.maxy - self.miny																--shape height
+				values.center = self.minx + values.width / 2														--center shape ("x")
+				values.middle = self.miny + values.height / 2														--middle shape ("y")
+				values.radius = ke.math.distance(values.width, values.height) / 2									--shape radius
+				values.centroid = ke.shape.point.new(self.minx + values.width / 2, self.miny + values.height / 2)	--shape point center
+				values.seg = name == "seg" and self:__seg() or nil													--shape segments
+				values.pnt = name == "pnt" and self:points() or nil													--shape points
+				values.len = name == "len" and self:length() or nil													--shape length (perimeter)
+				values.isclosed = self:__isclosed()																	--true or false
+				return values[name]
+			end, --shp = ke.shape.new(ke.shape.rectangle)
 			
 			["new"] = function(asscode)
 				local code = (type(asscode) == "table" and asscode.code) and asscode.code or asscode
@@ -3836,12 +3898,6 @@
 				self.n = n
 				self.minx, self.maxx = minx, maxx		--min and max values in "x"
 				self.miny, self.maxy = miny, maxy		--min and max values in "y"
-				self.width  = maxx - minx				--shape width
-				self.height = maxy - miny				--shape height
-				self.center = minx + self.width / 2		--center shape ("x")
-				self.middle = miny + self.height / 2	--middle shape ("y")
-				self.radius = ke.math.distance(self.width, self.height) / 2	--shape radius
-				self.centroid = ke.shape.point.new(self.center, self.middle) --shape point center
 				setmetatable(self, ke.shape)
 				return self
 			end, --ke.shape.new(ke.shape.circle):round()
@@ -6352,6 +6408,104 @@
 				return ke.tag.only(ke.math.rand(ke.math.rand(2, 4)) == 1, Text_fx, text)
 			end, --ke.text.rand(fx.text, 5, 82)
 			
+			move = function(text, dx, dy, Ox, Oy, accel)
+				local fx = ke.infofx.fx
+				local text = text or fx.text
+				local function count_space_end(str)
+					local space, i = 0, 1
+					while str:sub(-i, -i) == " " do
+						space = space + 1
+						i = i + 1
+					end
+					return space
+				end
+				fx.add_tags = fx.add_tags:gsub("\\\\", "\\")
+				local Off_x = Ox or 0 --\\fsp
+				local Off_y = Oy or 0 --\\fscy
+				local Ini_x = aegisub.text_extents(ke.infofx.l.style, ".")
+				local tagsi = ("{\\p0}\\N{\\r%s\\p1}%s"):format(fx.add_tags, text)
+				local tagsa = "\\p0\\r\\alpha&HFF&"
+				if ke.table.type({text}) ~= "shape" then
+					Ini_x = aegisub.text_extents(ke.infofx.l.style, ".") + count_space_end(text) * aegisub.text_extents(ke.infofx.l.style, " ")
+					tagsi = ("{\\p0}\\N{\\r%s\\q2}%s"):format(fx.add_tags, text)
+					tagsa = "\\r\\alpha&HFF&"
+				end --ke.table.type({ke.shape.circle})
+				local tagsx, tagsy = dx or "", dy or ""
+				fx.add_tags = "" -->no se está borrando en realidad
+				Off_y = 2 * Off_y --los valores en "y" deben duplicarse
+				tagsx = type(tagsx) == "number" and ("\\t(%s,%s,\\fsp%s)"):format(fx.t1, fx.t2, tagsx) or tagsx
+				tagsy = type(tagsy) == "number" and ("\\t(%s,%s,\\fscy%s)"):format(fx.t1, fx.t2, tagsy) or tagsy
+				local Mov_x = ("%s\\fsp%s"):format(tagsa, -Ini_x - 2 * Off_x)
+				if type(tagsx) == "table" then
+					local transfo_cap_x = ke.table.match(tagsx, "\\t%(")
+					if #transfo_cap_x > 0 then
+						tagsx = table.concat(tagsx)
+					elseif ke.table.type(tagsx) == "number" then
+						Mov_x = ("%s\\fsp%s"):format(tagsa, -Ini_x - 2 * tagsx[1])
+						if #tagsx > 1 then
+							local dur = fx.time_dur / (#tagsx - 1)
+							for i = 2, #tagsx do
+								Mov_x = Mov_x .. ("\\t(%s,%s,\\fsp%s)"):format((i - 2) * dur, (i - 1) * dur, -Ini_x - 2 * tagsx[i])
+							end
+						end
+						tagsx = ""
+					elseif ke.table.type(tagsx) == "table" then
+						Mov_x = ("%s\\fsp%s"):format(tagsa, -Ini_x - 2 * tagsx[1][1])
+						if #tagsx[1] > 1 then
+							for i = 2, #tagsx[1] do
+							--	Mov_x = Mov_x .. ("\\t(%s,%s,\\fsp%s)"):format(tagsx[2][i - 1], tagsx[2][i], -Ini_x - 2 * tagsx[1][i])
+								Mov_x = Mov_x .. ("\\t(%s,%s,\\fsp%s)"):format(tagsx[2][i - 1], tagsx[2][i], -Ini_x - 2 * tagsx[1][i])
+							end
+						end
+						tagsx = ""
+					end
+				else
+					tagsx = tagsx:gsub("\\fsp(%-?%d[%.%d]*)", function(val) return "\\fsp" .. -Ini_x - 2 * tonumber(val) end)
+					:gsub("\\fsp(R[%a]*%b())", function(val) return "\\fsp" .. -Ini_x - 2 * ke.string.toval(val) end)
+					:gsub("\\fsp(%b())", function(val) return "\\fsp" .. -Ini_x - 2 * ke.string.toval(val) end)
+				end
+				local Mov_H = ("{%s%s}."):format(Mov_x, tagsx)
+				------------------------------------------------------------------
+				local Mov_y1 = ("\\r\\fscy%s"):format((Off_y >= 0) and Off_y or 0)
+				tagsy = type(tagsy) == "table" and table.concat(tagsy) or tagsy
+				tagsy = tagsy:gsub("\\fscy(R[%a]*%b())", function(val) return "\\fscy" .. ke.string.toval(val) end)
+				:gsub("\\fscy(%b())", function(val) return "\\fscy" .. ke.string.toval(val) end)
+				:gsub("\\fscy(%-?%d[%.%d]*)", function(val) return "\\fscy" .. 2 * tonumber(val) end)
+				local valsy, t = {[0] = Off_y}
+				for t in tagsy:gmatch("\\t%b()") do
+					valsy[#valsy + 1] = tonumber(t:match("\\fscy(%-?%d[%.%d]*)"))
+				end
+				local k, transfo = 1, {p = {}, n = {}}
+				local t1, t2, vy, dy
+				for t in tagsy:gmatch("\\t%b()") do
+					t1 = tonumber(t:match("\\t%((%d[%.%d]*),%d[%.%d]*,"))
+					t2 = tonumber(t:match("\\t%(%d[%.%d]*,(%d[%.%d]*),"))
+					vy = tonumber(t:match("\\fscy(%-?%d[%.%d]*)"))
+					if vy < 0 then
+						if vy * valsy[k - 1] >= 0 then
+							transfo.n[#transfo.n + 1] = t:gsub("(\\fscy)%-(%d[%.%d]*)", "%1%2")
+						else
+							dy = valsy[k - 1] - vy
+							transfo.p[#transfo.p + 1] = ("\\t(%s,%s,\\fscy0)"):format(t1, t1 - (t2 - t1) * vy / dy)
+							transfo.n[#transfo.n + 1] = ("\\t(%s,%s,\\fscy%s)"):format(t1 - (t2 - t1) * vy / dy, t2, -vy)
+						end
+					else
+						if vy * valsy[k - 1] >= 0 then
+							transfo.p[#transfo.p + 1] = t
+						else
+							dy = vy - valsy[k - 1]
+							transfo.n[#transfo.n + 1] = ("\\t(%s,%s,\\fscy0)"):format(t1, t1 + (t2 - t1) * vy / dy)
+							transfo.p[#transfo.p + 1] = ("\\t(%s,%s,\\fscy%s)"):format(t1 + (t2 - t1) * vy / dy, t2, vy)
+						end
+					end
+					k = k + 1
+				end
+				local Mov_V1 = ("{%s%s\\p1}m 0 0 m 0 100 "):format(Mov_y1, table.concat(transfo.p))
+				local Mov_y2 = ("\\r\\fscy%s"):format((Off_y <= 0) and ((Off_y == 0) and 0 or -Off_y) or 0)
+				local Mov_V2 = ("\\N{%s%s\\p1}m 0 0 m 0 100 "):format(Mov_y2, table.concat(transfo.n))
+				return Mov_V1 .. tagsi .. Mov_H .. Mov_V2
+			end, --ke.text.move(nil, ke.tag.oscill(fx.time_dur, 5f, "\\fspR(10)"), ke.tag.oscill(fx.time_dur, 5f, "\\fscyR(10)"))
+			
 		},
 		
 		tag = {
@@ -6555,7 +6709,8 @@
 						shp, smove = ke.recall.remember("shp", smove), smove:redraw(7.5, "bezier")
 						points = smove:points()
 						length = ke.math.distance(points)
-						local add = {fx.center - (relative and points[1].x or 0), fx.middle - l.descent - (relative and points[1].y or 0)}
+					--	local add = {fx.center - (relative and points[1].x or 0), fx.middle - l.descent - (relative and points[1].y or 0)}
+						local add = {fx.center - (relative and points[1].x or 0), fx.middle - (relative and points[1].y or 0)}
 						points = ke.recall.remember("pnt", ke.shape.point.group(points, function(p, get, add) return p + add end, add))
 					end --ke.tag.move(ke.shape.circle)
 				elseif type(points) == "table" and points[1] == "random" then
@@ -6568,7 +6723,8 @@
 					points[1][1] = points[1][1] or 10
 					points[1][2] = points[1][2] or 10
 					points[1][3] = points[1][3] or frame_dur
-					local add = {fx.center, fx.middle - l.descent}
+				--	local add = {fx.center, fx.middle - l.descent}
+					local add = {fx.center, fx.middle}
 					local xtimes = {}
 					for i = 1, #points do
 						local dur = times[i][2] - times[i][1]
@@ -6849,6 +7005,81 @@
 				return ipol_function(t * (n - 1) - (seg - 1), ini, fin)
 			end, --ke.tag.interpolate(0.44, "&H00&", "&HEE&", "&HFF&")
 			
+			move7 = function(text, moves, times)
+				local fx, total = ke.infofx.fx
+				local packs = {mx = {}, my = {}}
+				local times = times or {0, fx.time_dur}
+				local width_point = aegisub.text_extents(ke.infofx.l.style, ".")
+				local width_space = aegisub.text_extents(ke.infofx.l.style, " ")
+				local topairs = function(tbl)
+					local result = {}
+					for i = 1, #tbl - 1 do
+						table.insert(result, {tbl[i], tbl[i + 1]})
+					end
+					return result
+				end --ke.tag.move7(nil, ke.shape.rectangle)
+				if ke.table.type(moves) == "shape" then
+					--[[
+					local coors = ke.shape.point.group(ke.shape.new(moves):redraw(6, "bezier"):points(), "coors")
+					local mt = topairs(ke.math.ipol(times, nil, #coors[1]))
+					packs.mx = {v = coors[1], t = mt}
+					packs.my = {v = coors[2], t = mt}
+					--]]
+					local shp = ke.shape.new(moves):redraw(6, "bezier")
+					local points, length, accum, accum_length = shp:points(), shp:length(), 0, 0
+					local coors, mt = ke.shape.point.group(points, "coors"), ke.table.new()
+					local total, accel = times[2] - times[1], 1.4
+					for i = 2, #points do
+						accum_length = accum_length + points[i]:distance(points[i - 1])
+						local t = {
+							times[1] + accum,
+							times[1] + accum + total * (accum_length / length) ^ accel
+						}
+						mt:insert(t)
+						accum = t[2]
+					end
+					packs.mx = {v = coors[1], t = mt}
+					packs.my = {v = coors[2], t = mt}
+					return packs
+				elseif type(moves) == "table" then
+					packs.mx, packs.my = moves.mx, moves.my
+					if packs.mx then
+						local tx = moves.mx.t
+						if moves.mx.t and ke.table.type(moves.mx.t) == "number" then
+							tx = topairs(ke.math.ipol(moves.mx.t, nil, #packs.mx.v))
+						elseif not moves.mx.t then
+							tx = topairs(ke.math.ipol(times, nil, #packs.mx.v))
+						end
+						packs.mx.t = tx
+					end --ke.tag.move7(nil, {mx = {v = {0,200,-200,0}}})
+					if packs.my then
+						local ty = moves.my.t
+						if moves.my.t and ke.table.type(moves.my.t) == "number" then
+							ty = topairs(ke.math.ipol(moves.my.t, nil, #packs.my.v))
+						elseif not moves.mx.t then
+							ty = topairs(ke.math.ipol(times, nil, #packs.my.v))
+						end
+						packs.my.t = ty
+					end --ke.tag.move7(nil, {mx = {v = {0,200,-200,0}, t = {600, 800}}})
+					if moves.random then
+						local points = ke.table.new()
+						packs.mx = {v = ke.table.new(), t = ke.table.new()}
+						packs.my = {v = ke.table.new(), t = ke.table.new()}
+						for i, r in ipairs(moves.random) do
+							total = r.t and r.t[2] - r.t[1] or fx.time_dur
+							local n = math.ceil(total / (r.dur or 2 * ke.infofx.frame_dur))
+							local rxy = ke.shape.point.random(n, r[1] or 24, r[2] or 24)
+							rxy[#rxy] = ke.shape.point.new(0,0)
+							packs.mx.v:insert(rxy, nil, true)
+						end --ke.tag.move7(nil, {random = {{100, 200, t = {600, 800}}}})
+					end
+				end
+				return packs
+			end
+			--moves = shape
+			--moves = {mx = {v = {coors}, t = {times}}, my = {v = {coors}, t = {times}}}
+			--moves = {random = {rand1, rand2, ...}}
+			--rand1 = {rx, ry, t = {t1, t2}, dur = 2f}
 		},
 		
 		time = {
@@ -7529,10 +7760,10 @@
 				return prefx
 			end,
 			
-			valbox = function(fx__, meta, line, l, word, syl, fx, var, ke, j, maxj)
-				local setting = {fx__, meta, line, l, word, syl, fx, var, ke, j, maxj}
-				local tovalue = "return function(fx__, meta, line, l, word, syl, fx, var, ke, j, maxj) return %s end"
-				local totable = "return function(fx__, meta, line, l, word, syl, fx, var, ke, j, maxj) return {%s} end"
+			valbox = function(fx__, meta, line, l, word, syl, char, fx, var, ke, j, maxj)
+				local setting = {fx__, meta, line, l, word, syl, char, fx, var, ke, j, maxj}
+				local tovalue = "return function(fx__, meta, line, l, word, syl, char, fx, var, ke, j, maxj) return %s end"
+				local totable = "return function(fx__, meta, line, l, word, syl, char, fx, var, ke, j, maxj) return {%s} end"
 				---------------------------------------
 				local vals = {}
 				--start and end times:
@@ -7544,37 +7775,11 @@
 				vals.start_time = start_t(table.unpack(setting))[1] or line.start_time
 				vals.end_time = end_t(table.unpack(setting))[1] or line.end_time
 				vals.dur = vals.end_time - vals.start_time
-				ke.infofx.fx.time_dur = vals.dur
-				ke.infofx.fx.time_ini, ke.infofx.fx.time_fin = vals.start_time, vals.end_time
-				---------------------------------------
-				--add tags:
-				vals.add_tags = ""
-				fx__.fx_addtags = ke.tag.tonumber(fx__.fx_addtags)
-				local tags = loadstring(totable:format(fx__.fx_addtags))()
-				tags = tags(table.unpack(setting))
-				if type(tags) == "table" and #tags > 0 then
-					for _, v in pairs(tags) do
-						vals.add_tags = vals.add_tags .. v
-					end
-				end
-				ke.infofx.fx.add_tags = vals.add_tags
-				---------------------------------------
-				--return:
-				fx__.fx_return = ke.tag.tonumber(fx__.fx_return)
-				local returnfx = loadstring(totable:format(fx__.fx_return))()
-				vals.returnfx = returnfx(table.unpack(setting))[1] or fx.text
-				if type(vals.returnfx) == "table" then
-					vals.returnfx = ke.table.view(vals.returnfx)
-				end
-				ke.infofx.fx.returnfx = vals.returnfx
 				---------------------------------------
 				--align:
 				fx__.fx_align = ke.tag.tonumber(fx__.fx_align)
 				local align = loadstring(tovalue:format(fx__.fx_align))()
 				vals.align = "\\an" .. (align(table.unpack(setting)) or 5)
-				vals.align = (type(vals.add_tags) == "string" and vals.add_tags:match("\\an%d")) and "" or vals.align
-				vals.align = (type(vals.returnfx) == "string" and vals.returnfx:match("\\an%d")) and "" or vals.align
-				ke.infofx.fx.align = vals.align
 				---------------------------------------
 				--position, move and time move:
 				fx__.fx_posx = ke.tag.tonumber(fx__.fx_posx)
@@ -7622,23 +7827,70 @@
 				end
 				vals.pos = not vals.x2 and ("\\pos(%s,%s)"):format(vals.x, vals.y)
 				or ("\\move(%s,%s,%s,%s,%s,%s)"):format(vals.x1, vals.y1, vals.x2, vals.y2, vals.t1, vals.t2)
-				vals.pos = (type(vals.add_tags) == "string" and vals.add_tags:match("\\[mp]^*o[sv]^*e?")) and "" or vals.pos
-				vals.pos = (type(vals.returnfx) == "string" and vals.returnfx:match("\\[mp]^*o[sv]^*e?")) and "" or vals.pos
-				ke.infofx.fx.x, ke.infofx.fx.x1, ke.infofx.fx.x2 = vals.x, vals.x1, vals.x1
-				ke.infofx.fx.y, ke.infofx.fx.y1, ke.infofx.fx.y2 = vals.y, vals.y1, vals.y1
-				ke.infofx.fx.t1, ke.infofx.fx.t2 = vals.t1, vals.t2
 				---------------------------------------
 				--layer:
 				fx__.fx_layer = ke.tag.tonumber(fx__.fx_layer)
 				local layer = loadstring(tovalue:format(fx__.fx_layer))()
 				vals.layer = layer(table.unpack(setting)) or line.layer
-				ke.infofx.fx.layer = vals.layer
 				---------------------------------------
 				for k, v in pairs(vals) do
 					if type(v) == "string" then
 						vals[k] = ke.tag.dark(v)
 					end
 				end
+				---------------------------------------
+				ke.infofx.fx.time_dur = vals.dur
+				ke.infofx.fx.time_ini, ke.infofx.fx.time_fin = vals.start_time, vals.end_time
+				ke.infofx.fx.align = vals.align
+				ke.infofx.fx.x, ke.infofx.fx.x1, ke.infofx.fx.x2 = vals.x, vals.x1, vals.x1
+				ke.infofx.fx.y, ke.infofx.fx.y1, ke.infofx.fx.y2 = vals.y, vals.y1, vals.y1
+				ke.infofx.fx.t1, ke.infofx.fx.t2 = vals.t1, vals.t2
+				ke.infofx.fx.layer = vals.layer
+				---------------------------------------
+				--add tags:
+				vals.add_tags = ""
+				fx__.fx_addtags = ke.tag.tonumber(fx__.fx_addtags)
+				local tags = loadstring(totable:format(fx__.fx_addtags))()
+				tags = tags(table.unpack(setting))
+				if type(tags) == "table" and #tags > 0 then
+					for _, v in pairs(tags) do
+						vals.add_tags = vals.add_tags .. v
+					end
+				end
+				vals.add_tags = ke.tag.dark(vals.add_tags)
+				vals.align = vals.add_tags:match("\\an%d") and "" or vals.align
+				vals.pos = vals.add_tags:match("\\[mp]^*o[sv]^*e?") and "" or vals.pos
+				ke.infofx.fx.add_tags = vals.add_tags
+				---------------------------------------
+				--return:
+				fx__.fx_return = ke.tag.tonumber(fx__.fx_return)
+				local returnfx = loadstring(totable:format(fx__.fx_return))()
+				vals.returnfx = returnfx(table.unpack(setting))[1] or fx.text
+				if type(vals.returnfx) == "number" then
+					vals.returnfx = tostring(vals.returnfx)
+				end
+				if type(vals.returnfx) == "table" then
+					vals.returnfx = ke.table.view(vals.returnfx)
+				end
+				local add_tag_p = ""
+				local p_in_tags = vals.add_tags:match("\\p%d")
+				local p_in_return = vals.returnfx:match("\\p%d")
+				if vals.returnfx:gsub("%b{}", ""):match("m%s+%-?%d[%.%-%d mlb]*") then
+					local shape_style = ("\\1c%s\\3c%s\\4c%s\\1a%s\\3a%s\\4a%s"):format(
+						ke.color.ass(fx__.fx_color1), ke.color.ass(fx__.fx_color3), ke.color.ass(fx__.fx_color4),
+						ke.alpha.ass(fx__.fx_alpha1), ke.alpha.ass(fx__.fx_alpha3), ke.alpha.ass(fx__.fx_alpha4)
+					)
+					add_tag_p = (not p_in_tags and not p_in_return) and ("{%s\\p1}"):format(shape_style) or ""
+					if p_in_tags and p_in_return then
+						vals.add_tags = vals.add_tags:gsub("\\p%d", "")
+					end
+				end
+				vals.returnfx = add_tag_p .. vals.returnfx
+				vals.returnfx = ke.tag.dark(vals.returnfx)
+				vals.align = vals.returnfx:match("\\an%d") and "" or vals.align
+				vals.pos = vals.returnfx:match("\\[mp]^*o[sv]^*e?") and "" or vals.pos
+				ke.infofx.fx.returnfx = vals.returnfx
+				---------------------------------------
 				ke.table.insert(fx, vals, false, true)
 			end,
 			
@@ -7650,6 +7902,113 @@
 				ke.recall[ref] = value
 				return value
 			end,
+			
+			retime = function(mode, add_start, add_end)
+				local add_start = ke.time.HMS_to_ms(add_start) or 0
+				local add_end = ke.time.HMS_to_ms(add_end) or 0
+				local times, l, fx = ke.infofx.times, ke.infofx.l, ke.infofx.fx
+				if mode == "line" then				-- mode[01]
+					l.start_time = times.line.start_time + add_start
+					l.end_time = times.line.end_time + add_end
+				elseif mode == "preline" then		-- mode[02]
+					l.start_time = times.line.start_time + add_start
+					l.end_time = times.line.start_time + add_end
+				elseif mode == "postline" then		-- mode[03]
+					l.start_time = times.line.end_time + add_start
+					l.end_time = times.line.end_time + add_end
+				elseif mode == "word" then			-- mode[04]
+					l.start_time = times.line.start_time + times.word.start_time + add_start
+					l.end_time = times.line.start_time + times.word.end_time + add_end
+				elseif mode == "preword" then		-- mode[05]
+					l.start_time = times.line.start_time + times.word.start_time + add_start
+					l.end_time = times.line.start_time + times.word.start_time + add_end
+				elseif mode == "postword" then		-- mode[06]
+					l.start_time = times.line.start_time + times.word.end_time + add_start
+					l.end_time = times.line.start_time + times.word.start_time + add_end
+				elseif mode == "syl" then			-- mode[07]
+					l.start_time = times.line.start_time + times.syl.start_time + add_start
+					l.end_time = times.line.start_time + times.syl.end_time + add_end
+				elseif mode == "presyl" then		-- mode[08]
+					l.start_time = times.line.start_time + times.syl.start_time + add_start
+					l.end_time = times.line.start_time + times.syl.start_time + add_end
+				elseif mode == "postsyl" then		-- mode[09]
+					l.start_time = times.line.start_time + times.syl.end_time + add_start
+					l.end_time = times.line.start_time + times.syl.end_time + add_end
+				elseif mode == "char" then			-- mode[10]
+					l.start_time = times.line.start_time + times.char.start_time + add_start
+					l.end_time = times.line.start_time + times.char.end_time + add_end
+				elseif mode == "prechar" then		-- mode[11]
+					l.start_time = times.line.start_time + times.char.start_time + add_start
+					l.end_time = times.line.start_time + times.char.start_time + add_end
+				elseif mode == "postchar" then		-- mode[12]
+					l.start_time = times.line.start_time + times.char.end_time + add_start
+					l.end_time = times.line.start_time + times.char.start_time + add_end
+				elseif mode == "start2word"	then	-- mode[13]
+					l.start_time = times.line.start_time + add_start
+					l.end_time = times.line.start_time + times.word.start_time + add_end
+				elseif mode == "word2end" then		-- mode[14]
+					l.start_time = times.line.start_time + times.word.end_time + add_start
+					l.end_time = times.line.end_time + add_end
+				elseif mode == "start2syl" then		-- mode[15]
+					l.start_time = times.line.start_time + add_start
+					l.end_time = times.line.start_time + times.syl.start_time + add_end
+				elseif mode == "syl2end" then		-- mode[16]
+					l.start_time = times.line.start_time + times.syl.end_time + add_start
+					l.end_time = times.line.end_time + add_end
+				elseif mode == "start2char"	then	-- mode[17]
+					l.start_time = times.line.start_time + add_start
+					l.end_time = times.line.start_time + times.char.start_time + add_end
+				elseif mode == "char2end" then		-- mode[18]
+					l.start_time = times.line.start_time + times.char.end_time + add_start
+					l.end_time = times.line.end_time + add_end
+				elseif mode == "linepct" then		-- mode[19]
+					l.start_time = times.line.start_time + add_start * times.line.duration / 100
+					l.end_time = times.line.start_time + add_end * times.line.duration / 100
+				elseif mode == "wordpct" then		-- mode[20]
+					l.start_time = times.line.start_time + times.word.start_time + add_start * times.word.duration / 100
+					l.end_time = times.line.start_time + times.word.start_time + add_end * times.word.duration / 100
+				elseif mode == "sylpct" then		-- mode[21]
+					l.start_time = times.line.start_time + times.syl.start_time + add_start * times.syl.duration / 100
+					l.end_time = times.line.start_time + times.syl.start_time + add_end * times.syl.duration / 100
+				elseif mode == "charpct" then		-- mode[22]
+					l.start_time = times.line.start_time + times.char.start_time + add_start * times.char.duration / 100
+					l.end_time = times.line.start_time + times.char.start_time + add_end * times.char.duration / 100
+				elseif mode == "set" or mode == "abs" then	-- mode[29]
+					l.start_time = add_start
+					l.end_time = add_end
+				elseif mode == "startsyl2char" then	-- mode[23]
+					l.start_time = times.line.start_time + times.syl.start_time + add_start
+					l.end_time = times.line.start_time + times.char.start_time + add_end
+				elseif mode == "startword2syl" then	-- mode[24]
+					l.start_time = times.line.start_time + times.word.start_time + add_start
+					l.end_time = times.line.start_time + times.syl.start_time + add_end
+				elseif mode == "startword2char" then-- mode[25]
+					l.start_time = times.line.start_time + times.word.start_time + add_start
+					l.end_time = times.line.start_time + times.char.start_time + add_end
+				elseif mode == "syl2endword" then	-- mode[26]
+					l.start_time = times.line.start_time + times.syl.end_time + add_start
+					l.end_time = times.line.start_time + times.word.end_time + add_end
+				elseif mode == "char2endsyl" then	-- mode[27]
+					l.start_time = times.line.start_time + times.char.end_time + add_start
+					l.end_time = times.line.start_time + times.syl.end_time + add_end
+				elseif mode == "char2endword" then	-- mode[28]
+					l.start_time = times.line.start_time + times.char.end_time + add_start
+					l.end_time = times.line.start_time + times.word.end_time + add_end
+				else								-- mode["default"]
+					l.start_time = times.line.start_time
+					l.end_time = times.line.end_time
+				end --ke.recall.retime("preword", 0, 0)
+				fx.time_ini = l.start_time
+				fx.time_fin = l.end_time
+				fx.time_dur = fx.time_fin - fx.time_ini
+				return ""
+			end,
+			
+			maxloop = function(newmaxloop)
+				local fx = ke.infofx.fx
+				fx.maxj = math.abs(math.ceil(newmaxloop or 1))
+				return ""
+			end, --ke.recall.maxloop(3)
 			
 		},
 		
