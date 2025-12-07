@@ -2,13 +2,15 @@
 	script_description = "New Generation Effects Automation Subs. Creating Effects with Modifiable Parameters"
 	script_author	   = "vict8r"
 	script_version	   = "1.0 beta"
-	script_update	   = "october 6th 2025"
+	script_update	   = "october 9th 2025"
 	
 	include("karaskel.lua")
 	local ke = require("kelibs/newkara_library")
 	local ROUND_NUM = 3
 	
 	ke.config.runfx = function(subs, meta, orgline, sett, fx__, linefx, linei)
+		retime = ke.recall.retime	--retime("word", 0, 0)
+		maxloop = ke.recall.maxloop	--maxloop(3)
 		if fx__.fx_printfx then
 			ke.config.savefx(fx__)
 		else
@@ -34,35 +36,45 @@
 				local setn = {line = line.n, word = word.n, syl = syl.n, char = char.n}
 				fx.n = setn[fx__.fx_type]
 				ke.infofx.fx = fx
+				ke.infofx.times = {
+					char = {start_time = char.start_time, end_time = char.end_time},
+					syl  = {start_time = syl.start_time, end_time = syl.end_time},
+					word = {start_time = word.start_time, end_time = word.end_time},
+					line = {start_time = line.start_time, end_time = line.end_time}
+				}
 				--variables:
-				local svar = ("return function(fx__, line, word, syl, ke) %s end"):format(fx__.fx_variable)
+				local svar = ("return function(fx__, line, word, syl, char, ke) %s end"):format(fx__.fx_variable)
 				if pcall(loadstring(svar)) then
-					loadstring(svar)()(fx__, line, word, syl, ke)
+					loadstring(svar)()(fx__, line, word, syl, char, ke)
 				end
 				local var = ke.string.loadstr(fx__.fx_variable, {var = var, syl = syl})
 				--loop:
 				local loop = {1}
-				local sloop = ("return function(fx__, line, word, syl, ke) return {%s} end"):format(fx__.fx_loop)
+				local sloop = ("return function(fx__, line, word, syl, char, ke) return {%s} end"):format(fx__.fx_loop)
 				if pcall(loadstring(sloop)) then
-					loop = loadstring(sloop)()(fx__, line, word, syl, ke)
+					loop = loadstring(sloop)()(fx__, line, word, syl, char, ke)
 				end
 				ke.infofx.loop = loop
 				local j, maxj = 1, 1
 				for k, v in pairs(loop)do
 					maxj = maxj * v
 				end
+				fx.maxj = maxj
 				while j <= maxj do
-					----------------------------------------------------------------------
+					----------------------------------------------------------------------------
 					ke.infofx.j = j
 					ke.infofx.maxj = maxj
-					ke.config.valbox(fx__, meta, line, l, word, syl, fx, var, ke, j, maxj)
-					----------------------------------------------------------------------
+					ke.config.valbox(fx__, meta, line, l, word, syl, char, fx, var, ke, j, maxj)
+					fx.add_tags = ke.infofx.mod_addtags and ke.infofx.mod_addtags or fx.add_tags
+					----------------------------------------------------------------------------
 					l.start_time = fx.time_ini
 					l.end_time = fx.time_fin
 					l.duration = fx.time_dur
 					l.text = ("{%s%s%s}%s"):format(fx.align, fx.pos, fx.add_tags, fx.returnfx)
 					l.layer = fx.layer
 					subs.append(l)
+					----------------------------------------------------------------------------
+					maxj = fx.maxj
 					j = j + 1
 				end
 			end
