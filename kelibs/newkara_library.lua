@@ -46,7 +46,7 @@
 	local script_author = "vict8r"
 	local script_description = "main library of functions and variables from effector"
 	local script_version = "1.0.3"
-	local script_update = "june 25th 2026"
+	local script_update = "july 1st 2026"
 	
 	--CONFIGURATION VALUES
 	local FONT_PRECISION = 64	--font scale for better precision output from native font system
@@ -314,17 +314,78 @@
 				return roots("org")
 			end, --ke.math.cubic(1, -3, -9, -5) --> {-1, 5}
 			
-			equation = function(coeficients)
+			resolve = function(coefficients)
 				--solves linear, quadratic, and cubic equations
-				while math.abs(coeficients[1]) < EPSILON do
-					table.remove(coeficients, 1)
+				while math.abs(coefficients[1]) < EPSILON do
+					table.remove(coefficients, 1)
 				end
-				if #coeficients > 1 then
-					local c1, c2, c3, c4 = table.unpack(coeficients)
+				if #coefficients > 1 then
+					local c1, c2, c3, c4 = table.unpack(coefficients)
 					return c4 and ke.math.cubic(c1, c2, c3, c4) or (c3 and ke.math.quadratic(c1, c2, c3) or {-c2 / c1})
 				end
 				return false
-			end, --ke.math.equation({1, -3, -9, -5})
+			end, --ke.math.resolve({1, -3, -9, -5})
+			
+			equation = function(coefficients, reals)
+				--roots of degree n equations with ascending coefficients
+				local complex = {
+					["new"] = function(r, i) return {r = r or 0, i = i or 0} end,
+					["add"] = function(a, b) return {r = a.r + b.r, i = a.i + b.i} end,
+					["sub"] = function(a, b) return {r = a.r - b.r, i = a.i - b.i} end,
+					["mul"] = function(a, b) return {r = a.r * b.r - a.i * b.i, i = a.r * b.i + a.i * b.r} end,
+					["abs"] = function(a) return math.sqrt(a.r * a.r + a.i * a.i) end,
+					["div"] = function(a, b)
+						local d = b.r * b.r + b.i * b.i
+						return {r = (a.r * b.r + a.i * b.i) / d, i = (a.i * b.r - a.r * b.i) / d}
+					end
+				}
+				local horner = function(coeff, c)
+					local n = #coeff
+					local p, dp = complex.new(coeff[n], 0), complex.new()
+					for i = n - 1, 1, -1 do
+						dp = complex.add(complex.mul(dp, c), p)
+						p = complex.add(complex.mul(p, c), complex.new(coeff[i], 0))
+					end
+					return p, dp
+				end
+				local cx = ke.table.new(coefficients)
+				while math.abs(cx[cx.n]) < EPSILON do
+					table.remove(cx, cx.n)
+				end
+				local roots, n = ke.table.new(), #cx - 1
+				local radius = cx:iterator({start = 1, i = {1, n}}, function(i, s) return math.max(s, 1 + math.abs(cx[i] / cx[#cx])) end)
+				for i = 1, n do
+					local angle = 2 * math.pi * (i - 1) / n
+					angle = angle + 0.001 * ke.math.rand()
+					roots[i] = {r = radius * math.cos(angle), i = radius * math.sin(angle)}
+				end
+				for iters = 1, 50 do
+					local done = true
+					for i = 1, n do
+						local z, p, dp = roots[i], horner(cx, roots[i])
+						local newton, sum = complex.div(p, dp), complex.new()
+						for j = 1, n do
+							sum = i ~= j and complex.add(sum, complex.div(complex.new(1, 0), complex.sub(z, roots[j]))) or sum
+						end
+						local corr = complex.div(newton, complex.sub(complex.new(1, 0), complex.mul(newton, sum)))
+						roots[i] = complex.sub(z, corr)
+						done = complex.abs(corr) <= 1e-14
+					end
+					if done then
+						break
+					end
+				end --ke.math.equation({-5, -9, -3, 1})
+				roots = roots:get("org", "r"):filter(function(k, c) return math.abs(c.i) < EPSILON and c.r or c end)
+				roots = reals and roots:filter(function(k, c) return type(c) == "number" and c or nil end) or roots
+				return roots
+			end, --ke.math.equation({4, 0, -5, 8, 1})
+			
+			evaluate = function(coefficients, t)
+				--given the coefficients, evaluate a polynomial at the value t
+				local c, result = ke.table.new(coefficients)
+				result = c:iterator({start = c[#c], i = {#c - 1, 1, -1}}, function(i, s) return s * t + c[i] end)
+				return result
+			end,--ke.math.evaluate({5, -7}, 2) --> f(x) = 5 - 7x // f(2)
 			
 			equality = function(n1, n2, tolerance)
 				--defines a maximum tolerance for two numbers to be considered equal
@@ -978,7 +1039,7 @@
 				local result = configs.start or 0
 				local env = ke.table.setvalues()
 				env.set({self = self})
-				configs.i = configs.i or {1, self.n or 1, 1}
+				configs.i = configs.i or {1, self.n or #self or 1, 1}
 				local i1, i2, i3 = configs.i[1] or 1, configs.i[2] or self.n or 1, configs.i[3] or 1
 				for i = i1, i2, i3 do
 					result = funct(i, result)
@@ -1233,6 +1294,7 @@
 				--filter the elements of the array by means of a function or element types
 				local f = support or "number"
 				local newself, i, newv, newk = {}, ke.math.count()
+				newself = (self.__name and self.__name == "ketable") and ke.table.new() or {}
 				for k, v in pairs(self) do
 					newv = type(f) == "string" and (type(v) == f and v or nil) or (type(f) == "function" and f(k, v, self) or nil)
 					newk = idx and i() or (type(k) == "number" and #newself + 1 or k)
@@ -1489,12 +1551,13 @@
 						return newtable
 					end,
 					
-					["org"] = function(self)
+					["org"] = function(self, support)
 						--returns the array with the numbers arranged in ascending order
 						local newtable = operation.toval(self)
+						local key = support or 1
 						table.sort(newtable, function(a, b)
-							a = type(a) == "table" and a[1] or a
-							b = type(b) == "table" and b[1] or b
+							a = type(a) == "table" and a[key] or a
+							b = type(b) == "table" and b[key] or b
 							return a < b end
 						)
 						return newtable
@@ -3318,13 +3381,12 @@
 				["inside"] = function(bezier, p)
 					bezier = ke.shape.segment.new(bezier)
 					cx, cy = ke.shape.beziers.coefficients(bezier)
-					local cx0, cx1, cx2, cx3 = table.unpack(cx)
-					local cy0, cy1, cy2, cy3 = table.unpack(cy)
-					local roots = ke.math.equation({cx3, cx2, cx1, cx0 - p.x})
+					cx[1] = cx[1] - p.x
+					local roots = ke.math.equation(cx, true)
 					for _, t in ipairs(roots) do
 						if ke.math.between(t, -1e-3, 1 + 1e-3) then
 							t = ke.math.clamp(t)
-							local yval = cy3 * t ^ 3 + cy2 * t ^ 2 + cy1 * t + cy0
+							local yval = ke.math.evaluate(cy, t)
 							if math.abs(yval - p.y) < 1e-3 then
 								return t
 							end
@@ -3332,6 +3394,14 @@
 					end
 					return false
 				end, --ke.shape.beziers.inside("m 0 20 b 20 0 40 0 60 20 ", {x = 30, y = 5})
+				
+				["roots"] = function(bezier)
+					local cx, cy = ke.shape.beziers.coefficients(bezier)
+					local xroots, yroots = ke.math.equation(cx, 1), ke.math.equation(cy, 1)
+					xroots = xroots:filter(function(k, v) return (v >= 0 - EPSILON and v <= 1 + EPSILON) and v or nil end)
+					yroots = yroots:filter(function(k, v) return (v >= 0 - EPSILON and v <= 1 + EPSILON) and v or nil end)
+					return xroots, yroots
+				end, --{ke.shape.beziers.roots("m 7 7 b 11 -44 48 56 65 -31 ")}
 				
 				["pos"] = function(points, n)
 					local fx = ke.infofx.data.fx
@@ -5284,13 +5354,10 @@
 							result:insert(s)
 						end
 					elseif s.t == "b" then
-						local y0, y1, y2, y3 = s[0].y, s[1].y, s[2].y, s[3].y
-						local a, b = -y0 + 3 * y1 - 3 * y2 + y3, 3 * y0 - 6 * y1 + 3 * y2
-						local c, d = -3 * y0 + 3 * y1, y0
-						local roots = ke.math.cubic(a, b, c, d):filter(function(k, v) return (v >= 0 and v <= 1) and v or nil end)
-						local curve, ini, c1, c2, u = s, 0
-						for _, t in ipairs(roots) do
-							u = (t - ini) / (1 - ini)
+						local _, yroots = ke.shape.beziers.roots(s)
+						local curve, ini, c1, c2 = s, 0
+						for _, t in ipairs(yroots) do
+							local u = (t - ini) / (1 - ini)
 							c1, c2 = curve:cut(u)
 							ini = t
 							result:insert(c1)
@@ -5301,7 +5368,7 @@
 				end
 				self.code = ke.shape.new(result).code
 				return self
-			end,
+			end, --ke.shape.splitmove("m 0 9 b 20 -11 40 -11 60 9 "):round()
 			
 		},
 		
