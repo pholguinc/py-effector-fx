@@ -45,8 +45,8 @@
 	local script_name = "newkara_library.lua"
 	local script_author = "vict8r"
 	local script_description = "main library of functions and variables from effector"
-	local script_version = "1.0.3"
-	local script_update = "july 1st 2026"
+	local script_version = "1.0.0"
+	local script_update = "august 7th 2026"
 	
 	--CONFIGURATION VALUES
 	local FONT_PRECISION = 64	--font scale for better precision output from native font system
@@ -67,27 +67,20 @@
 			__init = function(object, default)
 				--helper when a function requests a number as a parameter
 				object = type(object) == "function" and object() or object or default
-				if type(object) == "table" then
-					for k, v in pairs(object) do
-						object[k] = ke.math.__init(v)
-					end
-				end
+				object = ke.table.recurse(ke.math.__init, object) --recurse
 				object = type(tonumber(object)) == "number" and tonumber(object) or object
 				return object
 			end, --ke.math.__init({x = "-7", y = {9, 0, {"3", "&HFF&"}}})
 			
 			round = function(object, decimal)
 				--rounds a number to a specified number of decimal places
-				if type(object) == "table" then
-					return ke.table.recursive(object, ke.math.round, decimal)
-				end --recurse
+				object = ke.table.recurse(ke.math.round, object, decimal) --recurse
 				local dec = math.floor(math.abs(ke.math.__init(decimal, 0)))
-				return tonumber(object)
-					and math.floor(tonumber(object) * (10 ^ dec) + 0.5) / (10 ^ dec)
-					or object
-			end, --ke.math.round({1.6, 3.2, "0.9", x = "&HFF&"})
+				object = tonumber(object) and math.floor(tonumber(object) * (10 ^ dec) + 0.5) / (10 ^ dec) or object
+				return object
+			end, --ke.math.round({1.6, 3.2, "0.9", x = "&HFF&", {false, 8.7}})
 			
-			rand = function(num1, num2, step, sign, ratio)
+			rand = function(num1, num2, step, sign, range)
 				--generates a random number from a specified values range
 				num1, num2, step = ke.math.__init(num1), ke.math.__init(num2), ke.math.__init(step, 1)
 				if type(num1) == "table" then
@@ -111,10 +104,16 @@
 				if num2 == nil then return fxrand(num1) end
 				local n1, n2 = math.min(num1, num2), math.max(num1, num2)
 				step = step <= 0 and 1 or step
-				if ratio then
-					local xres = aegisub.video_size()
-					ratio = (xres or 1280) / 1280
-					n1, n2, step = n1 * ratio, n2 * ratio, step * ratio
+				if range then
+					local rmin, rmax, percent = range[1], range[2], range[3] or 100
+					percent = ke.math.clamp(percent, 0, 100)
+					local lsize = rmin > n1 and rmin - n1 or 0
+					local rsize = rmax < n2 and n2 - rmax or 0
+					if ke.math.rand(0, 100) <= percent or lsize + rsize <= 0 then
+						return ke.math.rand(rmin, rmax, step, sign)
+					end --ke.math.rand(0, 100, 0.1, false, {20, 80, 0})
+					local pick = ke.math.rand(0, lsize + rsize, step)
+					return pick <= lsize and ke.math.rand(n1, rmin - 1, step, sign) or ke.math.rand(rmax + 1, n2, step, sign)
 				end
 				local result = n1 + fxrand(0, (n2 - n1) / step) * step
 				result = result > n2 and n2 or result
@@ -133,8 +132,7 @@
 			
 			angle = function(p1, p2, p3)
 				--angle between one (and origin), two or three points (ASSDraw3 coordinates)
-				p1, p2, p3 = table.unpack(ke.table.get({p1, p2, p3}, "topoint"))
-				x1, y1, x2, y2, x3, y3 = p1:unpack(p2, p3)
+				local x1, y1, x2, y2, x3, y3 = table.unpack(ke.math.getnumbers(p1, p2, p3))
 				if x2 == nil then
 					x2, y2, x1, y1 = x1, y1, 0, 0
 				end --for cartesian coordinates: ang = 360 - ang
@@ -157,7 +155,7 @@
 				--distance between two points or a point and the origin (0, 0)
 				local nums, pnts = ke.math.getnumbers(p1, p2), ke.table.get({p1, p2}, "topoint")
 				if pnts.n > 2 then
-					return pnts:iterator({i = {1, pnts.n - 1}}, function(i, v) return v + ke.math.distance(pnts[i], pnts[i + 1]) end)
+					return pnts:iter(function(i, p, s) return s + ke.math.distance(pnts[i], pnts[i + 1]) end, {i = {1, pnts.n - 1}})
 				end --ke.math.distance(ke.shape.rectangle)
 				x1, y1, x2, y2 = table.unpack(nums)
 				return not x1 and 0 or ke.math.round(((x1 - (x2 or 0)) ^ 2 + (y1 - (y2 or 0)) ^ 2) ^ 0.5, ROUND_NUM)
@@ -165,8 +163,7 @@
 			
 			intersect = function(s1, s2)
 				--intercept point between lines defined at two segments
-				local coors = ke.math.getnumbers(s1, s2)
-				x1, y1, x2, y2, x3, y3, x4, y4 = table.unpack(coors)
+				local x1, y1, x2, y2, x3, y3, x4, y4 = table.unpack(ke.math.getnumbers(s1, s2))
 				if (x1 == x3 and y1 == y3) or (x1 == x4 and y1 == y4) then
 					return x1, y1, 0
 				elseif (x2 == x3 and y2 == y3) or (x2 == x4 and y2 == y4) then
@@ -183,7 +180,7 @@
 			factk = function(n)
 				--factorial of number n
 				n = math.abs(math.ceil(ke.math.__init(n, 0)))
-				return ke.table.iterator(nil, {start = 1, i = {2, n}}, function(i, v) return v * i end)
+				return ke.table.iter(n, function(i, v, s) return s * v end, 1)
 			end, --ke.math.factk(5)
 			
 			i = function(counter, A, B, C)
@@ -205,10 +202,7 @@
 					["ACB"] = A * (1 - f((C - C * xt(C) + i) / C)) + B * f((C - C * xt(C) + i) / C),	-->(AA<->B) (C-1)veces A y un B
 					["N,n"] = f((i - 1) / A) + 1,														-->(N,n) los Naturales A-veces cada uno
 				}
-				for k, v in pairs(algorithms) do
-					algorithms[k] = tostring(v) == "-0" and 0 or v
-				end
-				return algorithms
+				return ke.table.filter(algorithms, function(k, v) return tostring(v) == "-0" and 0 or v end)
 			end,
 			
 			circle = function(p1, p2, p3)
@@ -225,9 +219,6 @@
 			rotate = function(p, angle, axis)
 				--rotation a point p(x, y, z), about the selected axis
 				p = type(p) == "function" and p() or p
-				if ke.table.type(p) == "table" then
-					return ke.table.recursive(p, ke.math.rotate, angle, axis)
-				end --recurse
 				local rot_p, axis = {}, axis or "z"
 				if type(p) == "string" and p:match("%-?%d[%.%d]*%s+%-?%d[%.%d]*") then
 					local filter_rotation = function(x, y)
@@ -249,7 +240,7 @@
 				--converts a number from decimal base to hexadecimal base
 				num = ke.math.__init(num)
 				if type(num) == "table" then
-					return ke.table.recursive(num, ke.math.to16)
+					return ke.table.recurse(ke.math.to16, num)
 				end --recurse		
 				return ("%X"):format(ke.math.round(num))
 			end, --ke.math.to16({255, 40, x = 12})
@@ -258,8 +249,8 @@
 				--restricts a number between a minimum and a maximum value
 				num = ke.math.__init(num, 0.5)
 				if type(num) == "table" then
-					return ke.table.recursive(num, ke.math.clamp, menor, mayor, cycle)
-				end --recurse
+					return ke.table.recurse(ke.math.clamp, num, menor, mayor, cycle)
+				end --ke.math.clamp({3, 7, 12}, 5, 10)
 				menor, mayor = ke.math.__init(menor, 0), ke.math.__init(mayor, 1)
 				local c_min, c_max, ci = math.min(menor, mayor), math.max(menor, mayor)
 				if cycle then --is cyclically restricted
@@ -353,7 +344,7 @@
 					table.remove(cx, cx.n)
 				end
 				local roots, n = ke.table.new(), #cx - 1
-				local radius = cx:iterator({start = 1, i = {1, n}}, function(i, s) return math.max(s, 1 + math.abs(cx[i] / cx[#cx])) end)
+				local radius = cx:iter(function(i, v, s) return math.max(s, 1 + math.abs(cx[i] / cx[#cx])) end, {start = 1, i = {1, n}})
 				for i = 1, n do
 					local angle = 2 * math.pi * (i - 1) / n
 					angle = angle + 0.001 * ke.math.rand()
@@ -383,13 +374,13 @@
 			evaluate = function(coefficients, t)
 				--given the coefficients, evaluate a polynomial at the value t
 				local c, result = ke.table.new(coefficients)
-				result = c:iterator({start = c[#c], i = {#c - 1, 1, -1}}, function(i, s) return s * t + c[i] end)
+				result = c:iter(function(i, v, s) return s * t + c[i] end, {start = c[#c], i = {#c - 1, 1, -1}})
 				return result
 			end,--ke.math.evaluate({5, -7}, 2) --> f(x) = 5 - 7x // f(2)
 			
 			equality = function(n1, n2, tolerance)
 				--defines a maximum tolerance for two numbers to be considered equal
-				return math.abs(n1 - n2) < 0.1 ^ ((tolerance or 5) - 1)
+				return math.abs(n1 - n2) < 0.1 ^ (tolerance or 5)
 			end,
 			
 			between = function(num, n1, n2)
@@ -413,6 +404,14 @@
 					s = t.shape or shape
 					t = t.t
 				end
+				if type(t) == "table" then
+					local result, last = ke.table.new(), 0
+					for _, ti in ipairs(t) do
+						result:insert((ti - last) / (1 - last))
+						last = ti
+					end --actualiza los valores de t
+					return result:filter(function(k, v) return ke.math.normalize(v, a, s) end)
+				end --ke.math.normalize({t = {0.3, 0.5, 0.9}})
 				t = math.abs(ke.math.__init(t))
 				t = (t >= 0 and t <= 1) and t or t / (10 ^ tostring(t):match("(%d+)%.?"):len())
 				t = ke.math.clamp(type(a) == "function" and a(t) or t ^ a)
@@ -433,11 +432,7 @@
 				values = type(values) == "number" and {0, values} or values
 				if ke.table.type(values) == "table" then
 					values = ke.table.get(values, "zip")
-					local result = {}
-					for k, subset in ipairs(values) do
-						result[k] = ke.math.ipol(subset, t, accel, shape, size)
-					end
-					return result
+					return ke.table.filter(values, function(k, v) return ke.math.ipol(v, t, accel, shape, size) end)
 				end --ke.math.ipol({{10, 50}, {20, 150}}, 0.5)
 				t = ke.math.normalize(t, accel, shape)
 				if t == 0 then
@@ -456,24 +451,20 @@
 				local values = type(... or true) == "table" and ... or {...}
 				values = #values == 0 and {1} or values
 				if type(str) == "table" then
-					return ke.table.recursive(str, ke.math.format, ...)
+					return ke.table.recurse(ke.math.format, str, ...)
 				end --recurse
 				local icount = ke.string.count(str, "%%[aAcdeEfgGioqsuxX]^*") -- string.format modes
 				local str = str:format(unpack(ke.table.get(values, "newlen", icount)))
 				return ke.string.toval(str)
-			end, --ke.math.format("5 + 7")
+			end, --ke.math.format({"5 + 7", "%s"}, 8)
 			
 			getnumbers = function(...)
 				--returns a single table of numbers, obtained from the entered values
-				local array, result = {...}, ke.table.new()
+				local array, getnums = {...}, ke.table.new()
 				array = (#array == 1 and type(array[1]) == "table") and array[1] or array
 				array = ke.table.get(array, "tonumber")
-				for _, v in ipairs(array) do
-					if type(tonumber(v)) == "number" then
-						result:insert(tonumber(v))
-					end
-				end
-				return result
+				ke.table.iter(array, function(k, v) getnums:insert(tonumber(v)) end)
+				return getnums
 			end, --ke.math.getnumbers({{x = 1, y = 2}, "7 8 ", 3, 4, x = 10, y = 11})
 			
 			gauss = function(matrix)
@@ -829,7 +820,7 @@
 						end
 						local settab = type(support) == "number" and values[support] or (#values > 1 and values or values[1])
 						table.insert(newself, settab) --ke.table.new(unicode.chars("demo"), 1)
-					end --ke.table.new(shp:gmatch(("%d+") ("%d+")))
+					end --ke.table.new(shp:gmatch("(%d+) (%d+)"))
 				elseif type(array) == "number" then
 					local size = math.ceil(math.abs(array))
 					for i = 1, size do
@@ -961,40 +952,30 @@
 				return ke.table.__copy(self)
 			end,
 			
-			recursive = function(self, f, ...)
-				--applies a function recursively to the elements of a table
-				for k, v in pairs(self) do
-					if type(v) ~= "table" then
-						self[k] = f(v, ...)
-					else
-						ke.table.recursive(v, f, ...)
-					end
-				end --{"0:00:34.952", "0:00:44.920", "0:00:48.882"}
-				--[[aplicar una función a los elementos de un array
-				por2 = function(v) if type(v) == "number" then v = v * 2 end return v end
-				tbl = {2, 3, "hola mundo!", {7, 8, x = 1}}
-				tbl = ke.table.recursive(tbl, por2)
-				print --> {4, 6, "hola mundo!", {14, 16, x = 2}}
-				--]]
-				
-				--[[función parámetros extras
-				por3 = function(v, add, exp)
-					local exp = exp or 1
-					local add = add or 0
-					return type(v) == "number" and (v * 3 + add) ^ exp or v
+			clear = function(self)
+				--deletes the contents of an object or a table
+				local array = ke.table.copy(self)
+				for key in pairs(array) do
+					array[key] = nil
 				end
-				tbl = {2, 3, "hola mundo!", {7, 8, x = 1}}
-				tbl = ke.table.recursive(tbl, por3, 5, 2)
-				--]]
-				
-				--[[extraer elementos
-				alis = {}
-				ins = function(v) table.insert(alis, v) end
-				tbl = {2, 3, "hola mundo!", {7, 8, x = 1}, 0, {6, 7}}
-				tbl = ke.table.recursive(tbl, ins)
-				--]]
-				return self
+				return array
 			end,
+			
+			recurse = function(funct, array, ...)
+				if type(array) ~= "table" then return array end
+				for key, val in pairs(array) do
+					if type(val) == "table" then
+						ke.table.recurse(funct, val, ...)
+					else
+						array[key] = val
+						local TRUE, valor = pcall(funct, val, ...)
+						if TRUE then
+							array[key] = valor
+						end
+					end
+				end
+				return array
+			end, --ke.table.recurse(function(v, a) return v ^ (2 + a) end, {3, 6, "S", 5, {false, 4}}, 1)
 			
 			setvalues = function()
 				--provides a layered environment over _G, allowing dynamic globals injection, clearing, and restoration
@@ -1033,21 +1014,6 @@
 					end
 				}
 			end,
-			
-			iterator = function(self, configs, funct)
-				--obtains a single result by applying an iterable function to the elements of a table
-				local result = configs.start or 0
-				local env = ke.table.setvalues()
-				env.set({self = self})
-				configs.i = configs.i or {1, self.n or #self or 1, 1}
-				local i1, i2, i3 = configs.i[1] or 1, configs.i[2] or self.n or 1, configs.i[3] or 1
-				for i = i1, i2, i3 do
-					result = funct(i, result)
-					if result == nil then break end
-				end
-				env.reset()
-				return result
-			end, --> 5! = ke.table.iterator(nil, {start = 1, i = {1, 5}}, function(i, accum) return accum * i end)
 			
 			insert = function(self, e, index, _unpack_)
 				--"improved" version of the table.insert function
@@ -1090,6 +1056,40 @@
 					end
 				end
 			end,
+			
+			iter = function(self, funct, configs)
+				--apply the function to the elements of a table
+				self = type(self) == "number" and ke.table.new(self, function(i) return i end) or self
+				local start = type(configs) == "table" and configs.start or nil
+				local index = type(configs) == "table" and configs.i or nil
+				start = type(configs) == "number" and configs or start or 0
+				local result = start --or ke.table.clear(self or {})
+				local env = ke.table.setvalues()
+				env.set({self = self})
+				if index then
+					local i1, i2, i3 = index[1] or 1, index[2] or self.n or #self or 1, index[3] or 1
+					for i = i1, i2, i3 do
+						local v = self and self[i] or true
+						local TRUE, valor = pcall(funct, i, v, result)
+						if TRUE and type(result) == "table" then
+							table.insert(result, valor)
+						elseif TRUE then
+							result = valor
+						end
+					end --ke.table.iter({1, 2, 3, "d", x = 4, 5}, function(i, v, s) return s + v end)
+				else
+					for k, v in pairs(self) do
+						local TRUE, valor = pcall(funct, k, v, result)
+						if TRUE and type(result) == "table" then
+							result[k] = valor
+						elseif TRUE then
+							result = valor
+						end
+					end --ke.table.iter({1, 2, 3, "d", x = 4, 5}, function(k, v) return v ^ 3 end, {start = {}})
+				end
+				env.reset()
+				return result
+			end, --5! = ke.table.iter(5, function(k, v, s) return s * v end, 1)
 			
 			type = function(self)
 				--indicates the elements type in an array
@@ -1292,16 +1292,41 @@
 			
 			filter = function(self, support, idx)
 				--filter the elements of the array by means of a function or element types
-				local f = support or "number"
-				local newself, i, newv, newk = {}, ke.math.count()
-				newself = (self.__name and self.__name == "ketable") and ke.table.new() or {}
+				local support = support or "number"
+				local newself, i, newv = ke.table.clear(self), ke.math.count()
+				local types = {"nil", "number", "string", "boolean", "table", "function", "thread", "userdata"}
 				for k, v in pairs(self) do
-					newv = type(f) == "string" and (type(v) == f and v or nil) or (type(f) == "function" and f(k, v, self) or nil)
-					newk = idx and i() or (type(k) == "number" and #newself + 1 or k)
-					newself[newk] = newv
+					newv = v
+					if support == "keys" or support == "values" then
+						table.insert(newself, support == "keys" and k or v)
+					else
+						if type(support) == "string" then	
+							if ke.table.inside(types, support) then
+								newv = type(v) == support and v or nil
+							end
+						elseif type(support) == "function" then
+							local TRUE, valor = pcall(support, k, v, self)
+							if TRUE then
+								newv = valor
+							end
+						end
+						newself[k] = newv
+					end
 				end
-				return newself --impar = function(k, v) return v % 2 == 1 and v or nil end
-			end, --ke.table.filter({1, 2, 3, "4", x = 5, 6, y = 9}, impar)
+				if idx then
+					local keys = ke.table.filter(ke.table.filter(newself, "keys"), "number")
+					table.sort(keys)
+					local result = ke.table.clear(self)
+					ke.table.recurse(function(k) table.insert(result, newself[k]) end, keys)
+					for k, v in pairs(newself) do
+						if type(k) == "string" then
+							result[k] = v
+						end
+					end
+					return result
+				end
+				return newself
+			end, --ke.table.filter({1, 2, 3, "4", x = 5, 6, y = 9, [12] = 7}, "number", true)
 			
 			get = function(self, mode, support)
 				--perform multiple operations with the array elements
@@ -1432,6 +1457,13 @@
 						end
 						return newtable --ke.table.get(10, "disorder")
 					end, --ke.table.get({"A", "B", "C", "D", "E"}, "disorder")
+					
+					["flatten"] = function(self)
+						--returns a one-dimensional table
+						local alis = ke.table.clear(self)
+						ke.table.recurse(function(v) table.insert(alis, v) end, self)
+						return alis
+					end, --ke.table.get({[5] = "E", [2] = "B", x = 0, y = {[6] = "F", [3] = "C", [1] = "A"}}, "flatten")
 					
 					["idx"] = function(self, support)
 						--organize by index the elements of the table and omit the nils
@@ -1719,7 +1751,6 @@
 					
 					["tonumber"] = function(self)
 						--convert elements to numbers, if possible
-						--local self = type(self) ~= "table" and {self} or self
 						local index = {}
 						for k, v in pairs(self) do
 							v = type(v) == "function" and v() or v
@@ -1758,7 +1789,9 @@
 						local values = operation.tonumber(self)
 						local points = ke.table.new()
 						for i = 1, #values, 2 do
-							points:insert(ke.shape.point.new(values[i], values[i + 1]))
+							if values[i + 1] then
+								points:insert(ke.shape.point.new(values[i], values[i + 1]))
+							end
 						end
 						return points
 					end, --ke.table.get(ke.shape.rectangle, "topoint")
@@ -1900,7 +1933,7 @@
 			["new"] = function(str)
 				local str = type(str) == "function" and str() or str or ""
 				if type(str) == "table" then
-					return ke.table.recursive(str, ke.string.new)
+					return ke.table.recurse(ke.string.new, str)
 				end
 				local mt = getmetatable("").__index
 				setmetatable(mt, ke.string)
@@ -1940,12 +1973,12 @@
 				end --ke.string.toval("tonumber('3.5') + math.random(8)")
 				local success, result = pcall(chunk)
 				if result and type(result) == "table" then
-					result = ke.table.recursive(result, function(v)
+					result = ke.table.recurse(function(v)
 						if type(v) == "string" then
 							v = v:gsub("%b<>", function(cap) return cap:sub(2, -2) end)
 						end
 						return v
-					end)
+					end, result)
 				end --ke.string.toval("{nada, 3, 7, {x = 0, y = {5, 8}}}", nil, {"nada"})
 				return (success and result) and result or self
 			end, --ke.string.toval("5 + xres")
@@ -1976,7 +2009,7 @@
 				--converts the string "i" to a consecutive numeric value
 				local self = type(self) == "function" and self() or self or ""
 				if type(self) == "table" then
-					return ke.table.recursive(self, ke.string.i)
+					return ke.table.recurse(ke.string.i, self)
 				end --recurse
 				local count_i = 0
 				self = self:gsub("\\%w+%b()",
@@ -1999,7 +2032,7 @@
 				--number of times a snapshot or snapshot family appears in a string
 				local self = type(self) == "function" and self() or self or ""
 				if type(self) == "table" then
-					return ke.table.recursive(self, ke.string.count, captures)
+					return ke.table.recurse(ke.string.count, self, captures)
 				end --recurse
 				captures = type(captures) == "function" and captures() or captures or "KEfx"
 				captures = type(captures) ~= "table" and {captures} or captures
@@ -2013,7 +2046,7 @@
 					for c in self:gmatch(cap) do
 						n = n + 1
 					end
-				end
+				end --ke.string.count({"&HF58628&", "&HFF&"}, "%x")
 				return n
 			end, --ke.string.count("&HF58628&", "%x")
 			
@@ -2021,7 +2054,7 @@
 				--returns an array with specific values of a string
 				local self = type(self) == "function" and self() or self or ""
 				if type(self) == "table" then
-					return ke.table.recursive(self, ke.string.array, captures)
+					return ke.table.recurse(ke.string.array, self, captures)
 				end --recurse
 				if not captures then
 					return ke.table.new(unicode.chars(self), 1)
@@ -2109,7 +2142,7 @@
 				--"protect" part of the string to apply replacement functions
 				local self = type(self) == "function" and self() or self or ""
 				if type(self) == "table" then
-					return ke.table.recursive(self, ke.string.protect, captures)
+					return ke.table.recurse(ke.string.protect, self, captures)
 				end --recurse
 				captures = type(captures) == "function" and captures() or captures or "KEfx"
 				captures = type(captures) == "string" and {captures} or captures
@@ -2168,7 +2201,7 @@
 				--change or remove a specific capture of a string
 				local self = type(self) == "function" and self() or self or ""
 				if type(self) == "table" then
-					return ke.table.recursive(self, ke.string.change, captures, options)
+					return ke.table.recurse(ke.string.change, self, captures, options)
 				end --recurse
 				local no_cap = {}
 				local filter = options and options.filter or ""
@@ -2226,7 +2259,7 @@
 				--returns an array with the n-size parts of a string
 				local self, parts = self or "", parts or 3
 				if type(self) == "table" then
-					return ke.table.recursive(self, ke.string.parts, parts)
+					return ke.table.recurse(ke.string.parts, self, parts)
 				end --recurse
 				parts = type(parts) == "number" and math.ceil(math.abs(parts)) or parts
 				if type(parts) == "table" then
@@ -2379,11 +2412,9 @@
 					local others = {...}
 					local coors = ke.table.new()
 					coors:insert({self.x, self.y}, nil, true)
-					for _, p in ipairs(others) do
-						coors:insert({p.x, p.y}, nil, true)
-					end
+					ke.table.iter(others, function(i, p) coors:insert({p.x, p.y}, nil, true) end)
 					return table.unpack(coors)
-				end,
+				end, --{ke.shape.point.unpack({x = 0, y = 0}, {x = 1, y = 1})}
 				
 				["middle"] = function(self, other)
 					--midpoint between two points
@@ -2523,16 +2554,62 @@
 				
 				["rand"] = function(self, configs)
 					--random point around a point, within a given range, or between two points
-					--configs = {dx = val or table, dy = val or table, step = val, sign = true, n = positive_integer}
+					--configs = {dx = val or table, dy = val or table, step = val, sign = true, n = positive_integer, distance = positive_integer}
 					--configs = {other = point, rx = val, ry = val, step = val, n = positive_integer}
 					--configs = {radius = val or table, step = val, n = positive_integer}
 					self = self or ke.shape.point.new(0, 0)
 					local st = type(configs) == "table" and configs.step or 1
 					local sg = type(configs) == "table" and configs.sign or false
 					if configs and configs.n then
-						local n = configs.n
-						configs.n = nil
-						return ke.table.new(n, function() return ke.shape.point.rand(self, configs) end)
+						local n, mindistance = configs.n, configs.distance or 0
+						configs.n, configs.distance = nil
+						if mindistance <= 0 then
+							return ke.table.new(n, function() return ke.shape.point.rand(self, configs) end)
+						end
+						local cellsize, nmax, rpoints, grid = mindistance, 100, {}, {}
+						local function cellof(p)
+							return math.floor(p.x / cellsize), math.floor(p.y / cellsize)
+						end
+						local function addtogrid(p)
+							local cx, cy = cellof(p)
+							grid[cx] = grid[cx] or {}
+							grid[cx][cy] = grid[cx][cy] or {}
+							table.insert(grid[cx][cy], p)
+						end
+						local function toclose(p)
+							local cx, cy = cellof(p)
+							for dx = -1, 1 do
+								for dy = -1, 1 do
+									local col = grid[cx + dx]
+									local celda = col and col[cy + dy]
+									if celda then
+										for _, q in ipairs(celda) do
+											local ddx, ddy = q.x - p.x, q.y - p.y
+											if ddx * ddx + ddy * ddy < mindistance * mindistance then
+												return true
+											end
+										end
+									end
+								end
+							end
+							return false
+						end
+						for i = 1, n do
+							local insert = false
+							for _ = 1, nmax do
+								local p = ke.shape.point.rand(self, configs)
+								if not toclose(p) then
+									rpoints[#rpoints + 1] = p
+									addtogrid(p)
+									insert = true
+									break
+								end
+							end
+							if not insert then
+								break
+							end
+						end --ke.shape.point.rand(nil, {dx = 60, dy = 60, n = 15, distance = 12})
+						return rpoints
 					end --recurse
 					if configs and configs.radius then
 						local angle = ke.math.rand(0, 360, 0.2)
@@ -2654,7 +2731,7 @@
 						points[i] = filter(p, get, ...)
 					end
 					return points
-				end, --ke.shape.point.group(puntos, function(p, get, add) p.x = p.x + add[1] p.y = p.y + add[2] return p end, {5000, 1000})
+				end, --ke.shape.point.group({{x = 1, y = 1}}, function(p, get, add) p.x = p.x + add[1] p.y = p.y + add[2] return p end, {5000, 1000})
 				
 				["sort"] = function(points, mode)
 					--special organization of a group of points according to predetermined characteristics
@@ -2810,148 +2887,93 @@
 				["toshape"] = function(points)
 					--shape in assDraw3 format obtained from a given group of points
 					local shp = ("m %s %s l "):format(points[1].x, points[1].y)
-					return ke.table.iterator(nil, {start = shp, i = {2, #points}}, function(i, s) return s .. ("%s %s "):format(points[i].x, points[i].y) end)
+					return ke.table.iter(nil, function(i, v, s) return s .. ("%s %s "):format(points[i].x, points[i].y) end, {start = shp, i = {2, #points}})
 				end, --ke.shape.point.toshape(ke.shape.point.toconvex(ke.shape.point.rand(nil, {n = 25, dx = 50, dy = 50, sign = true})))
 				
-				["triangulate"] = function(points)
-					--triangulation of a given group of points
-					local delaunay
+				["triangulate"] = function(points, rectangle, toshape)
+					local result, delaunay, triangles = ke.table.new()
 					delaunay = {
-						__index = function(self, key)
-							return delaunay[key]
+						orient2d = function(a, b, c)
+							return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+						end, 
+						incircumcircle = function(a, b, c, p)
+							if delaunay.orient2d(a, b, c) < 0 then b, c = c, b end
+							local ax, ay, bx, by, cx, cy = a.x - p.x, a.y - p.y, b.x - p.x, b.y - p.y, c.x - p.x, c.y - p.y
+							local det = (ax * ax + ay * ay) * (bx * cy - cx * by) - (bx * bx + by * by) * (ax * cy - cx * ay) + (cx * cx + cy * cy) * (ax * by - bx * ay)
+							return det > 0
 						end,
-						
-						new = function(points)
-							return setmetatable({points = points or {}, triangles = {}}, delaunay)
+						pointkey = function(p) return p.x .. "," .. p.y end,
+						edgekey = function(p1, p2)
+							local k1, k2 = delaunay.pointkey(p1), delaunay.pointkey(p2)
+							return k1 < k2 and k1 .. "|" .. k2 or k2 .. "|" .. k1
 						end,
-						
-						triangle = {
-							__index = function(self, key)
-								return delaunay.triangle[key]
-							end,
-							
-							new = function(p1, p2, p3)
-								local tri = setmetatable({p1 = p1, p2 = p2, p3 = p3}, delaunay.triangle)
-								local ax, ay = tri.p1.x, tri.p1.y
-								local bx, by = tri.p2.x, tri.p2.y
-								local cx, cy = tri.p3.x, tri.p3.y
-								local d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-								if math.abs(d) < EPSILON then
-									return nil
+						insertpoint = function(triangles, p)
+							local bads, counter, news = {}, {}, {}
+							for _, t in ipairs(triangles) do
+								if delaunay.incircumcircle(t[1], t[2], t[3], p) then
+									bads[#bads + 1] = t
 								end
-								local ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
-								local uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
-								tri.circumcenter = ke.shape.point.new(ux, uy)
-								tri.circumradius = tri.circumcenter:distance(tri.p1)
-								return tri
-							end,
-							
-							inside = function(self, p)
-								if self.circumradius == math.huge then
-									return false
-								end
-								return self.circumcenter:distance(p) < (self.circumradius - EPSILON)
-							end,
-							
-							getedges = function(self)
-								return {{self.p1, self.p2}, {self.p2, self.p3}, {self.p3, self.p1}}
 							end
-						},
-						
-						supertriangle = function(self)
-							local minx, maxx, miny, maxy = math.huge, -math.huge, math.huge, -math.huge
-							for i, p in ipairs(self.points) do
-								minx, maxx = math.min(minx, p.x), math.max(maxx, p.x)
-								miny, maxy = math.min(miny, p.y), math.max(maxy, p.y)
-							end
-							local dx, dy = maxx - minx, maxy - miny
-							local deltamax = math.max(dx, dy) * 2
-							local midx, midy = (minx + maxx) / 2, (miny + maxy) / 2
-							return delaunay.triangle.new(
-								ke.shape.point.new(midx - deltamax, midy - deltamax),
-								ke.shape.point.new(midx + deltamax, midy - deltamax),
-								ke.shape.point.new(midx, midy + deltamax)
-							)
-						end,
-						
-						edgeshared = function(self, edge, bads)
-							local count = 0
-							for _, tri in ipairs(bads) do
-								local edges = tri:getedges()
-								for _, triedge in ipairs(edges) do
-									if (edge[1] == triedge[1] and edge[2] == triedge[2])
-										or (edge[1] == triedge[2] and edge[2] == triedge[1]) then
-										count = count + 1
+							for _, t in ipairs(bads) do
+								for _, a in ipairs({{t[1], t[2]}, {t[2], t[3]}, {t[3], t[1]}}) do
+									local key = delaunay.edgekey(a[1], a[2])
+									if counter[key] then
+										counter[key].n = counter[key].n + 1
+									else
+										counter[key] = {n = 1, p1 = a[1], p2 = a[2]}
 									end
 								end
 							end
-							return count > 1
-						end,
-						
-						triangulate = function(self)
-							local bigtriangle = self:supertriangle()
-							local triangulation = {bigtriangle}
-							-- Bowyer-Watson
-							for _, p in ipairs(self.points) do
-								local bads = {}
-								for _, tri in ipairs(triangulation) do
-									if tri:inside(p) then
-										table.insert(bads, tri)
+							for _, t in ipairs(triangles) do
+								local isbad = false
+								for _, m in ipairs(bads) do
+									if m == t then
+										isbad = true
+										break
 									end
 								end
-								local polygon = {}
-								for _, bad in ipairs(bads) do
-									local edges = bad:getedges()
-									for _, edge in ipairs(edges) do
-										if not self:edgeshared(edge, bads) then
-											table.insert(polygon, edge)
-										end
-									end
-								end
-								local new = {}
-								for _, tri in ipairs(triangulation) do
-									local isbad = false
-									for _, bad in ipairs(bads) do
-										if tri == bad then
-											isbad = true
-											break
-										end
-									end
-									if not isbad then
-										table.insert(new, tri)
-									end
-								end
-								triangulation = new
-								for _, edge in ipairs(polygon) do
-									local newtriangle = delaunay.triangle.new(edge[1], edge[2], p)
-									table.insert(triangulation, newtriangle)
-								end
+								news[#news + 1] = not isbad and t or nil
 							end
-							local result = {}
-							local supervertices = {bigtriangle.p1, bigtriangle.p2, bigtriangle.p3}
-							for _, tri in ipairs(triangulation) do
-								local shares = false
-								local trianglevertices = {tri.p1, tri.p2, tri.p3}
-								for _, supervertex in ipairs(supervertices) do
-									for _, vertex in ipairs(trianglevertices) do
-										if vertex == supervertex then
-											shares = true
-											break
-										end
-									end
-									if shares then break end
-								end
-								if not shares then
-									table.insert(result, tri)
-								end
+							for _, e in pairs(counter) do
+								news[#news + 1] = e.n == 1 and {e.p1, e.p2, p} or nil
 							end
-							self.triangles = result
-							return result
+							return news
 						end
 					}
-					local triangles = delaunay.new(points):triangulate()
-					return triangles
-				end,
+					if rectangle then
+						local r1, r2, r3, r4 = rectangle[1], rectangle[2], rectangle[3], rectangle[4]
+						triangles = {{r1, r2, r3}, {r1, r3, r4}}
+						for _, p in ipairs(points) do
+							triangles = delaunay.insertpoint(triangles, p)
+						end
+					else
+						local final, minx, miny, maxx, maxy = {}, math.huge, math.huge, -math.huge, -math.huge
+						for _, p in ipairs(points) do
+							minx, maxx = math.min(minx, p.x), math.max(maxx, p.x)
+							miny, maxy = math.min(miny, p.y), math.max(maxy, p.y)
+						end
+						local d = math.max(maxx - minx, maxy - miny) * 10 + 1
+						local s1, s2, s3 = {x = minx - d, y = miny - d}, {x = maxx + d * 2, y = miny - d}, {x = minx - d, y = maxy + d * 2}
+						triangles = {{s1, s2, s3}}
+						for _, p in ipairs(points) do
+							triangles = delaunay.insertpoint(triangles, p)
+						end
+						for _, t in ipairs(triangles) do
+							local touchsuper = false
+							for _, v in ipairs(t) do
+								if v == s1 or v == s2 or v == s3 then
+									touchsuper = true
+									break
+								end
+							end
+							final[#final + 1] = not touchsuper and t or nil
+						end
+						triangles = final
+					end
+					ke.table.iter(triangles, function(i, v) result:insert(ke.table.copy(v)) end)
+					result = toshape and result:filter(function(k, v) return ke.shape.point.toshape(v) end) or result
+					return result --rect = {{x = 0, y = 0}, {x = 0, y = 60}, {x = 60, y = 60}, {x = 60, y = 0}}
+				end, --ke.shape.point.triangulate(ke.shape.point.rand(nil, {dx = 60, dy = 60, n = 8}), rect, true)
 				
 			},
 			
@@ -2984,24 +3006,16 @@
 				end,
 				
 				["__str"] = function(self)
-					local x0, y0, x1, y1, x2, y2, x3, y3 = self:unpack()
-					local str = {
-						[1] = ("m %s %s "):format(x0, y0),
-						[2] = ("%s %s l %s %s "):format(x0, y0, x1, y1),
-						[3] = ("%s %s b %s %s %s %s %s %s "):format(x0, y0, x1, y1, x2, y2, x3, y3)
-					}
-					return x2 and str[3] or (x1 and str[2] or str[1])
+					return tostring(self)
 				end,
 				
 				["__tostring"] = function(self)
-					local x0, y0, x1, y1, x2, y2, x3, y3 = self:unpack()
-					local str = {
-						[1] = ("m %s %s "):format(x0, y0),
-						[2] = ("%s %s l %s %s "):format(x0, y0, x1, y1),
-						[3] = ("%s %s b %s %s %s %s %s %s "):format(x0, y0, x1, y1, x2, y2, x3, y3)
-					}
-					return x2 and str[3] or (x1 and str[2] or str[1])
-				end,
+					local x0, y0, x1, y1 = self:unpack()
+					local str = ("m %s %s "):format(x0, y0)
+					local segstr = ("%s %s %s "):format(x0, y0, self.t)
+					segstr = ke.table.iter(self, function(i, v, s) return s .. ("%s %s "):format(v.x, v.y) end, {start = segstr})
+					return x1 and segstr or str
+				end, --tostring(ke.shape.segment.cut(ke.shape.segment.new("m 0 0 b 15 0 30 0 45 0 "), {n = 4}))
 				
 				["__inv"] = function(self)
 					--reverses the order of the points of a given segment
@@ -3051,17 +3065,27 @@
 				end, --ke.shape.segment.inside(ke.shape.segment.new("m 0 20 b 20 0 40 0 60 20 "), ke.shape.point.new("l 30 5 "))
 				
 				["cut"] = function(self, t)
-					--divides a segment into two parts according to a given parameter t
+					--divides a segment into parts according to a given parameter t
 					if type(t) == "table" then
-						local parts, n = {}, t[1]
+						local parts = ke.table.new()
+						local ts = t.t and ke.math.normalize({t = t.t}) or nil
+						ts = t.n and ke.table.new(t.n - 1, function(i) return i / t.n end) or ts
+						if t.random then
+							local tn = type(t.random) == "table" and ke.math.rand(t.random[1], t.random[2]) or t.random
+							ts = ke.table.new(tn - 1, function() return ke.math.rand(0.05, 0.95, 0.001) end)
+							table.sort(ts)
+						end --ke.shape.segment.cut(ke.shape.segment.new("m 0 0 l 100 0 "), {n = 4})
+						ts = ke.math.normalize({t = ts})
+						local n = #ts
 						if n == 1 then return self end
 						local cur = self
-						for i = 1, n - 1 do
-							local t = 1 / (n - i + 1)
-							local L, R = ke.shape.segment.cut(cur, t)
-							parts[i] = L cur = R
-						end
-						table.insert(parts, cur)
+						for i = 1, n do
+							if ts[i] > 0 and ts[i] < 1 then
+								local left, right = ke.shape.segment.cut(cur, ts[i])
+								parts[i], cur = left, right
+							end
+						end --ke.shape.segment.cut(ke.shape.segment.new("m 0 0 l 100 0 "), {random = 4})
+						parts:insert(cur)
 						local newself = parts[1]
 						for i = 2, #parts do
 							for k = 1, 3 do
@@ -3166,7 +3190,8 @@
 						while true do
 							t = ke.shape.beziers.length2t(self, k * split)
 							if not t or t > 1 then
-								table.insert(seg, self:bezier(1))
+								local p = self:bezier(1)
+								table.insert(seg, p)
 								break
 							end
 							seg[k] = self:bezier(t)
@@ -3174,7 +3199,7 @@
 						end
 					end
 					return seg
-				end,
+				end, --ke.shape.segment.split(ke.shape.segment.new("m 0 0 l 10 0 "), {4})
 				
 				["intax"] = function(self, other)
 					--check if two segments are "overlapping"
@@ -3933,7 +3958,7 @@
 				--total shape perimeter
 				local self = ke.shape.__init(self)
 				local segs = self:__seg()
-				local length = segs:iterator({start = 0}, function(i, v) return v + segs[i]:length() end)
+				local length = segs:iter(function(i, v, s) return s + v:length() end, 0)
 				return ke.math.round(length, ROUND_NUM)
 			end, --ke.shape.length(ke.shape.circle)
 			
@@ -4238,7 +4263,7 @@
 				--applies one or more functions to the points of the individual shapes of a shape
 				local self = ke.shape.__init(self)
 				if type(self) == "table" and not self.code then
-					return ke.table.recursive(self, ke.shape.filtergroup, self)
+					return ke.table.recurse(ke.shape.filtergroup, self, self)
 				end
 				local n, code = ke.string.count(self.code, "m"), ""
 				for i, s in ipairs(self) do
@@ -4721,7 +4746,13 @@
 			
 			offset = function(self, bord, mode)
 				--converts the shape perimeter into a linear shape
-				return ke.shape.line(self, bord, mode)
+				bord = bord or 6
+				local self = ke.shape.__init(self)
+				if mode == "round" or mode == "bevel" then
+					local radius = bord * 1.48
+					return self:roundout(radius, mode):line(bord)
+				end
+				return self:line(bord) --"miter"
 			end, --ke.shape.offset("m 0 0 l 24 6 l 48 -7 l 65 16 l 50 30 l 43 12 l -12 26 ", 5, "bevel")
 			
 			expand = function(self, pixel)
@@ -5016,7 +5047,7 @@
 				--merge the entered shapes so that they occupy a single fx line
 				shapes = ke.shape.__init(shapes, {ke.shape.rectangle, ke.shape.circle})
 				tags = type(tags) == "function" and tags() or tags
-				local aux = not shapes.code and ke.table.iterator(nil, {start = "", i = {1, #shapes}}, function(i, s) return s .. ke.shape.new(shapes[i]) end) or nil
+				local aux = not shapes.code and ke.table.iter(nil, function(i, v, s) return s .. ke.shape.new(shapes[i]) end, {start = "", i = {1, #shapes}}) or nil
 				shapes = aux or shapes
 				local w, h = shapes.width, shapes.height
 				shapes = shapes:displace({mode = "origin"}):divide()
@@ -5433,19 +5464,6 @@
 				return ke.color.ass(255 * (R + M), 255 * (G + M), 255 * (B + M))
 			end, --ke.color.HSV_to_RGB(128, 1, 1)
 			
-			--[[
-			random = function(H, S, V)
-				--generates a random color with specific parameters
-				local ds, dv = S, V
-				H, S, V = ke.math.__init(H, 360), ke.math.__init(S, 100), ke.math.__init(V, 100)
-				H, S, V = ke.math.getnumbers(H), ke.math.getnumbers(S), ke.math.getnumbers(V)
-				H = ke.math.normalize(ke.math.rand(H[2] or 0, H[1])) * 360
-				S = ke.math.normalize(ke.math.rand(S[2] or 0, S[1], 0.01))
-				V = ke.math.normalize(ke.math.rand(V[2] or 0, V[1], 0.01))
-				return ke.color.HSV_to_RGB(H, ds and S or 1, dv and V or 1)
-			end, --"\\1c" .. ke.color.random()
-			--]]
-			---[[
 			random = function(H, S, V)
 				--generates a random color with specific parameters
 				H, S, V = ke.math.__init(H, ke.math.rand(360)), ke.math.__init(S, 1) * 100, ke.math.__init(V, 1) * 100
@@ -5458,7 +5476,6 @@
 				or (type(V) == "number" and iV("ABA", 0, 100) / 100) or 1
 				return ke.color.HSV_to_RGB(H, S, V)
 			end, --ke.color.random()
-			--]]
 			
 			interpolate = function(t, color1, color2)
 				--interpolate_color
@@ -5551,7 +5568,7 @@
 				--formats the alphas with xy-vsfilter
 				alpha = ke.math.__init(alpha, 0)
 				if type(alpha) == "table" then
-					return ke.table.recursive(alpha, ke.alpha.ass, number)
+					return ke.table.recurse(ke.alpha.ass, alpha, number)
 				end --recurse
 				alpha = type(tonumber(alpha)) == "number" and ("%X"):format(math.ceil(alpha) % 256)
 				or ((type(alpha) == "string" and alpha:match("[&H]*%x%x[&]*")) and alpha:match("[&H]*(%x%x)[&]*")) or alpha
@@ -6978,12 +6995,12 @@
 			HMS_to_ms = function(HMS)
 				--from HMS to ms format time
 				if type(HMS) == "table" then
-					return ke.table.recursive(HMS, ke.time.HMS_to_ms)
-				end
+					return ke.table.recurse(ke.time.HMS_to_ms, HMS)
+				end --recurse
 				HMS = type(HMS) == "function" and HMS() or HMS or 0
 				if type(HMS) == "string" and HMS:match("%d+%:%d+%:%d+%.%d+") then
 					local H, M, S, ms = HMS:match("(%d+)%:(%d+)%:(%d+)%.(%d+)")
-					ms = ms:len( ) == 2 and 10 * ms or (ms:len( ) == 1 and 100 * ms or ms)
+					ms = ms:len() == 2 and 10 * ms or (ms:len( ) == 1 and 100 * ms or ms)
 					return H * 3600000 + M * 60000 + S * 1000 + ms
 				end
 				return tonumber(HMS) and tonumber(HMS) or HMS
@@ -6993,7 +7010,7 @@
 				--convierte el tiempo de ms a formato HMS
 				ms = ke.math.__init(ms, 0)
 				if type(ms) == "table" then
-					return ke.table.recursive(ms, ke.time.ms_to_HMS)
+					return ke.table.recurse(ke.time.ms_to_HMS, ms)
 				end --recurse
 				local tms, H, M, S = ke.math.round(ms), 0, 0, 0
 				H = math.floor(tms / 3600000)
@@ -7012,7 +7029,7 @@
 				--retorna la cantidad de frames que hay en un tiempo determinado
 				time = type(time) == "function" and time() or time or 0
 				if type(time) == "table" then
-					return ke.table.recursive(time, ke.time.time_to_frame)
+					return ke.table.recurse(ke.time.time_to_frame, time)
 				end --recurse
 				time = tostring(time)
 				if time:match("%d+%:%d+%:%d+%.%d+") then
@@ -7025,7 +7042,7 @@
 				--convierte la cantidad de frames en un tiempo en formato ms
 				frames = ke.math.__init(frames, 0)
 				if type(frames) == "table" then
-					return ke.table.recursive(frames, ke.time.frame_to_ms)
+					return ke.table.recurse(ke.time.frame_to_ms, frames)
 				end --recurse
 				return ke.math.round(frames * frame_dur, 2)
 			end, --ke.time.frame_to_ms({2365, 128, 82351})
@@ -7034,7 +7051,7 @@
 				--convierte la cantidad de frames en un tiempo en formato HMS
 				frames = ke.math.__init(frames, 0)
 				if type(frames) == "table" then
-					return ke.table.recursive(frames, ke.time.frame_to_HMS)
+					return ke.table.recurse(ke.time.frame_to_HMS, frames)
 				end --recurse
 				return ke.time.ms_to_HMS(ke.time.frame_to_ms(frames))
 			end, --ke.time.frame_to_HMS({35, 240, {4532, {24, 276}, 9574}})
@@ -7663,7 +7680,7 @@
 						if pcall(loadstring(sloop)) then
 							loop = loadstring(sloop)()(char, syl, word, line, ke, fx, fx__)
 						end
-						local maxj = ke.table.iterator(nil, {start = 1, i = {1, #loop}}, function(i, accum) return accum * loop[i] end)
+						local maxj = ke.table.iter(nil, function(i, v, s) return s * loop[i] end, {start = 1, i = {1, #loop}})
 						ke.infofx.data.loop = loop
 						return maxj, svar, vars
 					end,
