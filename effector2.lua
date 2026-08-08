@@ -45,8 +45,8 @@
 	local script_name = "effector2"
 	local script_author = "vict8r"
 	script_description = "New Generation Effects Automation Subs. Creating Effects with Modifiable Parameters"
-	local script_version = "1.0.3 beta"
-	local script_update = "june 26th 2026"
+	local script_version = "1.0.0"
+	local script_update = "august 7th 2026"
 	
 	include("karaskel.lua")
 	local ke = require("kelibs/newkara_library")
@@ -72,11 +72,11 @@
 						data.sets = {["char"] = char, ["syl"] = syl, ["word"] = word, ["line"] = line}
 						fx.maxj = maxj
 						data.fx = fx
+						local var = heads.setvariable(char, syl, word, line, svar, vars, j)
 						while fxgroup and j <= maxj do
 							line.start_time, line.end_time = orgline.start_time, orgline.end_time
 							l.start_time, l.end_time = orgline.start_time, orgline.end_time
 							fx.returnfx = nil
-							local var = heads.setvariable(char, syl, word, line, svar, vars, j)
 							---------------------------------------------------------------------------------
 							data.j, data.maxj = j, maxj
 							ke.config.temp.valbox(meta, char, syl, word, line, l, fx, var, j, maxj)
